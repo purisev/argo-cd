@@ -799,6 +799,17 @@ func (r *ApplicationSetReconciler) createOrUpdateInCluster(ctx context.Context, 
 					}
 				}
 
+				// A suspend set on the Application, for example with its toggle-suspend action, is kept unless the
+				// template sets the suspend annotation itself.
+				if _, inTemplate := generatedApp.Annotations[argov1alpha1.AnnotationKeySuspend]; !inTemplate {
+					if state, exists := found.Annotations[argov1alpha1.AnnotationKeySuspend]; exists {
+						if generatedApp.Annotations == nil {
+							generatedApp.Annotations = map[string]string{}
+						}
+						generatedApp.Annotations[argov1alpha1.AnnotationKeySuspend] = state
+					}
+				}
+
 				for _, key := range preservedLabels {
 					if state, exists := found.Labels[key]; exists {
 						if generatedApp.Labels == nil {
