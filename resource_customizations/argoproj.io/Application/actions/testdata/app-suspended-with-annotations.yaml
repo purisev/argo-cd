@@ -1,0 +1,10 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: test-app
+  namespace: argocd
+  annotations:
+    example.com/owner: team
+    argocd.argoproj.io/suspend: "true"
+spec:
+  project: default

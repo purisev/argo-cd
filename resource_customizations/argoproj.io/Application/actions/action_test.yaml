@@ -1,0 +1,53 @@
+discoveryTests:
+  - inputPath: testdata/app.yaml
+    result:
+      - name: toggle-auto-sync
+        displayName: Enable Auto-Sync
+        disabled: false
+      - name: toggle-suspend
+        displayName: Suspend
+        iconClass: fa fa-fw fa-pause
+        disabled: false
+  - inputPath: testdata/app-suspended.yaml
+    result:
+      - name: toggle-auto-sync
+        displayName: Enable Auto-Sync
+        disabled: false
+      - name: toggle-suspend
+        displayName: Resume
+        iconClass: fa fa-fw fa-play
+        disabled: false
+  - inputPath: testdata/auto-sync-default.yaml
+    result:
+      - name: toggle-auto-sync
+        displayName: Disable Auto-Sync
+        disabled: false
+      - name: toggle-suspend
+        displayName: Suspend
+        iconClass: fa fa-fw fa-pause
+        disabled: false
+actionTests:
+  # auto-sync enabled by default (enabled unset) with prune and selfHeal: disable it and keep prune and selfHeal
+  - action: toggle-auto-sync
+    inputPath: testdata/auto-sync-default.yaml
+    expectedOutputPath: testdata/auto-sync-disabled.yaml
+  # auto-sync disabled with prune and selfHeal: enable it and keep prune and selfHeal
+  - action: toggle-auto-sync
+    inputPath: testdata/auto-sync-disabled.yaml
+    expectedOutputPath: testdata/auto-sync-enabled.yaml
+  - action: toggle-auto-sync
+    inputPath: testdata/auto-sync-explicitly-enabled.yaml
+    expectedOutputPath: testdata/auto-sync-explicitly-disabled.yaml
+  # no automated block: create it, enabled
+  - action: toggle-auto-sync
+    inputPath: testdata/app.yaml
+    expectedOutputPath: testdata/auto-sync-created.yaml
+  - action: toggle-suspend
+    inputPath: testdata/app.yaml
+    expectedOutputPath: testdata/app-suspended.yaml
+  - action: toggle-suspend
+    inputPath: testdata/app-suspended.yaml
+    expectedOutputPath: testdata/app-resumed.yaml
+  - action: toggle-suspend
+    inputPath: testdata/app-suspended-with-annotations.yaml
+    expectedOutputPath: testdata/app-with-annotations.yaml
