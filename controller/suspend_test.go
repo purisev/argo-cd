@@ -505,3 +505,66 @@ func TestProcessAppRefreshStartsSuspend(t *testing.T) {
 	require.NotNil(t, stored.Status.Suspend)
 	assert.Equal(t, v1alpha1.ApplicationSuspendPhaseSuspending, stored.Status.Suspend.Phase)
 }
+
+func TestSyncHealthOverride(t *testing.T) {
+	pausedDeployment := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "apps/v1",
+		"kind":       "Deployment",
+		"metadata":   map[string]any{"name": "guestbook", "namespace": test.FakeDestNamespace, "generation": int64(1)},
+		"spec":       map[string]any{"paused": true},
+		"status":     map[string]any{"observedGeneration": int64(1)},
+	}}
+	suspendedConfigMap := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "ConfigMap",
+		"metadata":   map[string]any{"name": "config", "namespace": test.FakeDestNamespace},
+	}}
+	overrides := map[string]v1alpha1.ResourceOverride{
+		"ConfigMap": {HealthLua: `return {status = "Suspended", message = "on purpose"}`},
+	}
+
+	t.Run("SuspendedApplication", func(t *testing.T) {
+		override := syncHealthOverride(withSuspend(newFakeApp(), true, nil), overrides)
+
+		status, err := health.GetResourceHealth(pausedDeployment, override)
+		require.NoError(t, err)
+		assert.Equal(t, health.HealthStatusHealthy, status.Status)
+
+		status, err = health.GetResourceHealth(suspendedConfigMap, override)
+		require.NoError(t, err)
+		assert.Equal(t, health.HealthStatusHealthy, status.Status)
+		assert.Equal(t, "on purpose", status.Message)
+	})
+
+	t.Run("NotSuspendedApplication", func(t *testing.T) {
+		override := syncHealthOverride(newFakeApp(), overrides)
+
+		status, err := health.GetResourceHealth(pausedDeployment, override)
+		require.NoError(t, err)
+		assert.Equal(t, health.HealthStatusSuspended, status.Status)
+
+		status, err = health.GetResourceHealth(suspendedConfigMap, override)
+		require.NoError(t, err)
+		assert.Equal(t, health.HealthStatusSuspended, status.Status)
+	})
+}
+
+func TestSyncSkipHooks(t *testing.T) {
+	tests := []struct {
+		name      string
+		suspended bool
+		syncOp    v1alpha1.SyncOperation
+		want      bool
+	}{
+		{name: "full sync", want: false},
+		{name: "selective sync", syncOp: v1alpha1.SyncOperation{Resources: []v1alpha1.SyncOperationResource{{Kind: "Deployment", Name: "guestbook"}}}, want: true},
+		{name: "apply strategy", syncOp: v1alpha1.SyncOperation{SyncStrategy: &v1alpha1.SyncStrategy{Apply: &v1alpha1.SyncStrategyApply{}}}, want: true},
+		{name: "suspended application", suspended: true, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := withSuspend(newFakeApp(), tt.suspended, nil)
+			assert.Equal(t, tt.want, syncSkipHooks(app, &tt.syncOp))
+		})
+	}
+}
