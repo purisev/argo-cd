@@ -59,7 +59,7 @@ the environment should come back with its configuration intact.
 ### Non-Goals
 
 * Scheduled suspend and resume. A sync window, a CronJob or an external controller can set the annotation.
-* Suspending resources that have no scale-to-zero semantics, such as DaemonSets, Jobs or bare Pods. They are
+* Suspending resources that have no scale-to-zero semantics, such as DaemonSets or bare Pods. They are
   reported, not changed.
 * Deleting resources. Suspend keeps every resource, PersistentVolumeClaims included.
 * A dedicated suspend panel in the UI. Suspend and resume are offered in the context menu of the
@@ -116,17 +116,50 @@ data:
 
 The script is stored in a new `SuspendLua` field of `ResourceOverride`, next to `HealthLua` and `Actions`.
 
-Built-in scripts:
+Built-in scripts cover kinds that have a way to stop their Pods while keeping their data and configuration:
 
 | Kind | Suspended form |
 |------|----------------|
-| `apps/Deployment`, `apps/StatefulSet`, `apps/ReplicaSet` | `spec.replicas: 0` |
+| `apps/Deployment`, `apps/StatefulSet`, `apps/ReplicaSet`, `v1/ReplicationController` | `spec.replicas: 0` |
+| `apps.openshift.io/DeploymentConfig` | `spec.replicas: 0` |
 | `argoproj.io/Rollout` | `spec.replicas: 0` |
+| `apps.kruise.io/CloneSet`, `apps.kruise.io/StatefulSet` | `spec.replicas: 0` |
+| `rabbitmq.com/RabbitmqCluster` | `spec.replicas: 0` |
 | `batch/CronJob` | `spec.suspend: true` |
+| `batch/Job` | `spec.suspend: true` |
+| `argoproj.io/CronWorkflow` | `spec.suspend: true` |
+| `apps.kruise.io/AdvancedCronJob`, `apps.kruise.io/BroadcastJob` | `spec.paused: true` |
 | `keda.sh/ScaledObject` | annotations `autoscaling.keda.sh/paused-replicas: "0"` and `autoscaling.keda.sh/paused: "true"` |
 | `keda.sh/ScaledJob` | annotation `autoscaling.keda.sh/paused: "true"` |
 | `postgresql.cnpg.io/Cluster` | annotation `cnpg.io/hibernation: "on"` |
+| `psmdb.percona.com/PerconaServerMongoDB`, `pxc.percona.com/PerconaXtraDBCluster` | `spec.pause: true` |
+| `kubevirt.io/VirtualMachine` | `spec.running: false` when the manifest sets `spec.running`, otherwise `spec.runStrategy: Halted` |
+| `serving.kserve.io/InferenceService`, `serving.kserve.io/LLMInferenceService` | annotation `serving.kserve.io/stop: "true"` |
+| `flink.apache.org/FlinkDeployment`, `flink.apache.org/FlinkSessionJob` | `spec.job.state: suspended` |
+| `numaflow.numaproj.io/Pipeline`, `numaflow.numaproj.io/MonoVertex` | `spec.lifecycle.desiredPhase: Paused` |
+| `numaplane.numaproj.io/PipelineRollout`, `numaplane.numaproj.io/MonoVertexRollout` | `desiredPhase: Paused` in the lifecycle of the embedded Pipeline or MonoVertex spec |
 | `argoproj.io/Application` | annotation `argocd.argoproj.io/suspend: "true"` (cascade, see below) |
+
+A Job that has already completed is not affected by `spec.suspend`, so only running Jobs stop.
+
+Most of these fields already appear in health checks, actions or their test data in `resource_customizations`.
+`argoproj.io/CronWorkflow` `spec.suspend` and `pxc.percona.com/PerconaXtraDBCluster` `spec.pause` do not; they
+come from the operators' APIs, and the script tests must confirm them.
+
+Several customizations pause something other than the Pods, and they get no suspend script:
+
+* Flux sources, Kustomizations and HelmReleases, MariaDB `spec.suspend`, and the CloudNativePG
+  `reconciliationLoop` annotation stop the controller's reconciliation while the workloads keep running.
+* `apps/Deployment` `spec.paused` and the `updateStrategy` pause of OpenKruise workloads stop rollouts, not
+  Pods.
+* Cluster API `MachineDeployment` and `MachinePool` replicas and Gardener `Shoot` hibernation manage cluster
+  nodes. Scaling them takes down infrastructure that other Applications run on, so an admin who wants that
+  has to add the script in `argocd-cm`.
+
+Kinds that may support scaling to zero but whose behaviour at zero is not confirmed by any existing health
+check or action, such as OpenFaaS `Function`, SpinKube `SpinApp`, Strimzi `KafkaConnect`, Altinity
+`ClickHouseInstallation` and OpenKruise `GameServerSet`, get built-in scripts only after that behaviour is
+verified against the operator's documentation.
 
 A script must return an object of the same group, kind, name and namespace. Any other result is a
 comparison error.
@@ -139,7 +172,7 @@ the resource tree and syncs all work on the transformed targets, because `SyncAp
 from `CompareAppState` as well.
 
 The controller leaves target objects alone when their kind has no suspend script. If any of them is a
-DaemonSet, a Job or a Pod, the Application gets a `SuspendWarning` condition that lists them.
+DaemonSet or a Pod, the Application gets a `SuspendWarning` condition that lists them.
 
 Fields that a suspend script sets are applied by Argo CD, so Argo CD owns them: they are recorded in
 `last-applied-configuration` with client-side apply and owned by the Argo CD field manager with server-side
