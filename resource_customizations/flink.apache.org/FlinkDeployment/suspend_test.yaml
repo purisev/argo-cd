@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/flinkdeployment.yaml
+  expectedOutputPath: testdata/suspend/flinkdeployment-suspended.yaml
+- inputPath: testdata/suspend/flinkdeployment-session-cluster.yaml
+  expectedOutputPath: testdata/suspend/flinkdeployment-session-cluster-suspended.yaml

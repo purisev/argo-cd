@@ -1,0 +1,11 @@
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: example
+  namespace: default
+  annotations:
+    cnpg.io/hibernation: "on"
+spec:
+  instances: 3
+  storage:
+    size: 1Gi

@@ -1,0 +1,10 @@
+apiVersion: pxc.percona.com/v1
+kind: PerconaXtraDBCluster
+metadata:
+  name: example
+  namespace: default
+spec:
+  crVersion: 1.15.0
+  pxc:
+    size: 3
+  pause: true
