@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/argoproj/argo-cd/gitops-engine/v3/pkg/health"
 	hookutil "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/sync/hook"
 	kubeutil "github.com/argoproj/argo-cd/gitops-engine/v3/pkg/utils/kube"
 	log "github.com/sirupsen/logrus"
@@ -185,6 +186,35 @@ func resourceID(obj *unstructured.Unstructured) string {
 		id = obj.GetNamespace() + "/" + id
 	}
 	return id
+}
+
+// suspendedAsHealthy reports Suspended resources as Healthy, so that the sync waves of a suspended application do not
+// wait for resources that are suspended on purpose.
+type suspendedAsHealthy struct {
+	inner health.HealthOverride
+}
+
+func (o suspendedAsHealthy) GetResourceHealth(obj *unstructured.Unstructured) (*health.HealthStatus, error) {
+	status, err := health.GetResourceHealth(obj, o.inner)
+	if err != nil || status == nil || status.Status != health.HealthStatusSuspended {
+		return status, err
+	}
+	return &health.HealthStatus{Status: health.HealthStatusHealthy, Message: status.Message}, nil
+}
+
+// syncHealthOverride returns the health override that a sync of the application uses to advance sync waves.
+func syncHealthOverride(app *v1alpha1.Application, resourceOverrides map[string]v1alpha1.ResourceOverride) health.HealthOverride {
+	var override health.HealthOverride = lua.ResourceHealthOverrides(resourceOverrides)
+	if app.IsSuspended() {
+		override = suspendedAsHealthy{inner: override}
+	}
+	return override
+}
+
+// syncSkipHooks returns whether a sync of the application skips hooks: apply-strategy and selective syncs do, and so
+// does every sync of a suspended application.
+func syncSkipHooks(app *v1alpha1.Application, syncOp *v1alpha1.SyncOperation) bool {
+	return syncOp.IsApplyStrategy() || len(syncOp.Resources) > 0 || app.IsSuspended()
 }
 
 // suspendSync moves the application through the suspend phases and starts the syncs that suspend or resume its
