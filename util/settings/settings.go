@@ -1257,6 +1257,8 @@ func (mgr *SettingsManager) appendResourceOverridesFromSplitKeys(cmData map[stri
 			overrideVal.UseOpenLibs = useOpenLibs
 		case "actions":
 			overrideVal.Actions = v
+		case "suspend":
+			overrideVal.SuspendLua = v
 		case "ignoreDifferences":
 			overrideIgnoreDiff := v1alpha1.OverrideIgnoreDiff{}
 			err := yaml.Unmarshal([]byte(v), &overrideIgnoreDiff)
