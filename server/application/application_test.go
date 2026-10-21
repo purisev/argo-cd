@@ -3863,6 +3863,24 @@ func TestRunResourceActionOnApplication(t *testing.T) {
 		assert.False(t, *updated.Spec.SyncPolicy.Automated.Enabled)
 	})
 
+	t.Run("TogglesSuspend", func(t *testing.T) {
+		testApp := newTestApp(func(app *v1alpha1.Application) {
+			app.Spec.Project = destOnlyProj.Name
+		})
+		appServer := newTestAppServer(t, testApp, destOnlyProj)
+		getApp := func() *v1alpha1.Application {
+			app, err := appServer.appclientset.ArgoprojV1alpha1().Applications(testApp.Namespace).Get(t.Context(), testApp.Name, metav1.GetOptions{})
+			require.NoError(t, err)
+			return app
+		}
+
+		require.NoError(t, runAction(t, appServer, testApp, "toggle-suspend"))
+		assert.True(t, getApp().IsSuspended())
+
+		require.NoError(t, runAction(t, appServer, testApp, "toggle-suspend"))
+		assert.NotContains(t, getApp().Annotations, v1alpha1.AnnotationKeySuspend)
+	})
+
 	t.Run("RejectsPatchOfAnotherObject", func(t *testing.T) {
 		testApp := newTestApp(func(app *v1alpha1.Application) {
 			app.Spec.Project = destOnlyProj.Name
