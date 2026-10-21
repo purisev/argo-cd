@@ -22,10 +22,9 @@ with another, while the Application stays in sync with Git the whole time.
 
 A user marks an Application as suspended with the `argocd.argoproj.io/suspend: "true"` annotation, either
 in Git or with the `toggle-suspend` resource action on the Application. While the annotation is set, Argo CD
-transforms the desired state of the Application's resources before it compares and syncs them: Deployments
-and StatefulSets get `replicas: 0`, CronJobs get `suspend: true`, KEDA ScaledObjects are paused at zero
-replicas, CloudNativePG Clusters are hibernated, and so on. Each kind is transformed by a Lua script, shipped
-for common kinds and overridable in `argocd-cm`.
+transforms the desired state of the Application's resources before it compares and syncs them, for example
+`replicas: 0` for a Deployment or `suspend: true` for a CronJob. Each kind is transformed by a Lua script,
+shipped for common kinds and overridable in `argocd-cm`.
 
 Because the transformed manifests are the desired state, the Application stays `Synced` and self-heal keeps
 the workloads stopped instead of fighting the change. Argo CD applies the transformation even when automated
