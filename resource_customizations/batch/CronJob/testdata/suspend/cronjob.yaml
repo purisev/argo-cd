@@ -1,0 +1,16 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: example
+  namespace: default
+spec:
+  suspend: false
+  schedule: "*/5 * * * *"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: example
+            image: quay.io/argoprojlabs/argocd-e2e-container:0.2

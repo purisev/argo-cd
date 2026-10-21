@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/replicaset.yaml
+  expectedOutputPath: testdata/suspend/replicaset-suspended.yaml
+- inputPath: testdata/suspend/replicaset-without-replicas.yaml
+  expectedOutputPath: testdata/suspend/replicaset-without-replicas-suspended.yaml

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ReplicationController
+metadata:
+  name: example
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    app: example
+  template:
+    metadata:
+      labels:
+        app: example
+    spec:
+      containers:
+      - name: example
+        image: quay.io/argoprojlabs/argocd-e2e-container:0.2
