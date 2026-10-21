@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/cronworkflow.yaml
+  expectedOutputPath: testdata/suspend/cronworkflow-suspended.yaml
+- inputPath: testdata/suspend/cronworkflow-already-suspended.yaml
+  expectedOutputPath: testdata/suspend/cronworkflow-already-suspended-suspended.yaml

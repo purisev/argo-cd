@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/cronjob.yaml
+  expectedOutputPath: testdata/suspend/cronjob-suspended.yaml
+- inputPath: testdata/suspend/cronjob-already-suspended.yaml
+  expectedOutputPath: testdata/suspend/cronjob-already-suspended-suspended.yaml
