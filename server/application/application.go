@@ -2743,6 +2743,11 @@ func (s *Server) RunResourceActionV2(ctx context.Context, q *application.Resourc
 		return nil, err
 	}
 
+	// An action run on the Application itself patches that Application, which is stored on the control plane
+	// rather than on the destination cluster. Access to it was authorized by RBAC when it was loaded, and the
+	// project's destinations do not apply to it.
+	patchesApplication := res == nil
+
 	// First, make sure all the returned resources are permitted, for each operation.
 	// Also perform create with dry-runs for all create-operation resources.
 	// This is performed separately to reduce the risk of only some of the resources being successfully created later.
@@ -2750,6 +2755,12 @@ func (s *Server) RunResourceActionV2(ctx context.Context, q *application.Resourc
 	// the dry-run for relevant apply/delete operation would have to be invoked as well.
 	for _, impactedResource := range newObjects {
 		newObj := impactedResource.UnstructuredObj
+		if patchesApplication && impactedResource.K8SOperation == lua.PatchOperation {
+			if !isSameObject(liveObj, newObj) {
+				return nil, errors.New("resource action cannot patch an object other than the Application it was run on")
+			}
+			continue
+		}
 		err := s.verifyResourcePermitted(ctx, destCluster, proj, newObj)
 		if err != nil {
 			return nil, err
@@ -2778,7 +2789,11 @@ func (s *Server) RunResourceActionV2(ctx context.Context, q *application.Resourc
 		switch impactedResource.K8SOperation {
 		// No default case since a not supported operation would have failed upon unmarshaling earlier
 		case lua.PatchOperation:
-			_, err := s.patchResource(ctx, config, liveObjBytes, newObjBytes, newObj)
+			if patchesApplication {
+				err = s.patchApplication(ctx, a, liveObjBytes, newObjBytes)
+			} else {
+				_, err = s.patchResource(ctx, config, liveObjBytes, newObjBytes, newObj)
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -2840,6 +2855,27 @@ func (s *Server) patchResource(ctx context.Context, config *rest.Config, liveObj
 		}
 	}
 	return &application.ApplicationResponse{}, nil
+}
+
+func (s *Server) patchApplication(ctx context.Context, a *v1alpha1.Application, liveObjBytes, newObjBytes []byte) error {
+	diffBytes, err := jsonpatch.CreateMergePatch(liveObjBytes, newObjBytes)
+	if err != nil {
+		return fmt.Errorf("error calculating merge patch: %w", err)
+	}
+	if string(diffBytes) == "{}" {
+		return nil
+	}
+	_, err = s.appclientset.ArgoprojV1alpha1().Applications(a.Namespace).Patch(ctx, a.Name, types.MergePatchType, diffBytes, metav1.PatchOptions{})
+	if err != nil {
+		return fmt.Errorf("error patching application: %w", err)
+	}
+	return nil
+}
+
+func isSameObject(a, b *unstructured.Unstructured) bool {
+	return a.GroupVersionKind().GroupKind() == b.GroupVersionKind().GroupKind() &&
+		a.GetName() == b.GetName() &&
+		a.GetNamespace() == b.GetNamespace()
 }
 
 func (s *Server) verifyResourcePermitted(ctx context.Context, destCluster *v1alpha1.Cluster, proj *v1alpha1.AppProject, obj *unstructured.Unstructured) error {

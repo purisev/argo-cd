@@ -3819,6 +3819,83 @@ func TestRunOldStyleResourceAction(t *testing.T) {
 	})
 }
 
+func TestRunResourceActionOnApplication(t *testing.T) {
+	group := "argoproj.io"
+	kind := "Application"
+	version := "v1alpha1"
+
+	// The project only permits the destination namespace, not the namespace the Application is stored in.
+	destOnlyProj := &v1alpha1.AppProject{
+		Name: "dest-only", Namespace: testNamespace,
+		Spec: v1alpha1.AppProjectSpec{
+			SourceRepos:  []string{"*"},
+			Destinations: []v1alpha1.ApplicationDestination{{Server: "*", Namespace: test.FakeDestNamespace}},
+		},
+	}
+
+	runAction := func(t *testing.T, appServer *Server, testApp *v1alpha1.Application, action string) error {
+		t.Helper()
+		_, err := appServer.RunResourceActionV2(t.Context(), &application.ResourceActionRunRequestV2{
+			Name:         &testApp.Name,
+			AppNamespace: &testApp.Namespace,
+			Namespace:    &testApp.Namespace,
+			ResourceName: &testApp.Name,
+			Group:        &group,
+			Kind:         &kind,
+			Version:      &version,
+			Action:       &action,
+		})
+		return err
+	}
+
+	t.Run("PatchesApplicationOnControlPlane", func(t *testing.T) {
+		testApp := newTestApp(func(app *v1alpha1.Application) {
+			app.Spec.Project = destOnlyProj.Name
+			app.Spec.SyncPolicy = &v1alpha1.SyncPolicy{Automated: &v1alpha1.SyncPolicyAutomated{}}
+		})
+		appServer := newTestAppServer(t, testApp, destOnlyProj)
+
+		require.NoError(t, runAction(t, appServer, testApp, "toggle-auto-sync"))
+
+		updated, err := appServer.appclientset.ArgoprojV1alpha1().Applications(testApp.Namespace).Get(t.Context(), testApp.Name, metav1.GetOptions{})
+		require.NoError(t, err)
+		require.NotNil(t, updated.Spec.SyncPolicy.Automated.Enabled)
+		assert.False(t, *updated.Spec.SyncPolicy.Automated.Enabled)
+	})
+
+	t.Run("RejectsPatchOfAnotherObject", func(t *testing.T) {
+		testApp := newTestApp(func(app *v1alpha1.Application) {
+			app.Spec.Project = destOnlyProj.Name
+		})
+		retargetAction := `
+obj.metadata.name = "another-app"
+obj.metadata.annotations = {["retargeted"] = "true"}
+return obj
+`
+		appServer := newTestAppServerWithEnforcerConfigure(t, func(enf *rbac.Enforcer) {
+			_ = enf.SetBuiltinPolicy(assets.BuiltinPolicyCSV)
+			enf.SetDefaultRole("role:admin")
+		}, map[string]string{
+			"resource.customizations.actions.argoproj.io_Application": "discovery.lua: |\n  return {retarget = {}}\ndefinitions:\n- name: retarget\n  action.lua: |\n" + indentLines(retargetAction, "    "),
+		}, testApp, destOnlyProj)
+
+		err := runAction(t, appServer, testApp, "retarget")
+		require.ErrorContains(t, err, "cannot patch an object other than the Application")
+
+		unchanged, err := appServer.appclientset.ArgoprojV1alpha1().Applications(testApp.Namespace).Get(t.Context(), testApp.Name, metav1.GetOptions{})
+		require.NoError(t, err)
+		assert.NotContains(t, unchanged.Annotations, "retargeted")
+	})
+}
+
+func indentLines(s, indent string) string {
+	lines := strings.Split(strings.Trim(s, "\n"), "\n")
+	for i, line := range lines {
+		lines[i] = indent + line
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
 func TestIsApplicationPermitted(t *testing.T) {
 	t.Run("Incorrect project", func(t *testing.T) {
 		testApp := newTestApp()
