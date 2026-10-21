@@ -23,8 +23,8 @@ with another, while the Application stays in sync with Git the whole time.
 A user marks an Application as suspended with the `argocd.argoproj.io/suspend: "true"` annotation, either
 in Git or with the `toggle-suspend` resource action on the Application. While the annotation is set, Argo CD
 transforms the desired state of the Application's resources before it compares and syncs them, for example
-`replicas: 0` for a Deployment or `suspend: true` for a CronJob. Each kind is transformed by a Lua script,
-shipped for common kinds and overridable in `argocd-cm`.
+`replicas: 0` for a Deployment or `suspend: true` for a CronJob. A Lua script per kind does the
+transformation. Argo CD ships scripts for common kinds, and admins can override them in `argocd-cm`.
 
 Because the transformed manifests are the desired state, the Application stays `Synced` and self-heal keeps
 the workloads stopped instead of fighting the change. Argo CD applies the transformation even when automated
@@ -109,7 +109,7 @@ generated into the operator manual, like the list of built-in resource actions.
 
 While the annotation is set, Argo CD runs the suspend scripts on the desired objects before diffing, so the
 diff, the sync status and every sync of the Application use the suspended form. Argo CD applies the fields
-that the scripts set and therefore owns them, with client-side and with server-side apply. Once the
+that the scripts set, so it owns them under both client-side and server-side apply. Once the
 annotation is removed, the next sync of those resources removes the fields or restores the values from Git.
 
 Every sync of a suspended Application, whether automated, manual or a rollback, follows two more rules:
@@ -126,8 +126,9 @@ disabled. When the annotation appears or disappears, Argo CD syncs the out-of-sy
 suspend script, without hooks and without pruning. These syncs follow the rules of automated sync: they wait
 for a running operation to finish, respect sync windows and back off after a failure.
 
-To resume correctly, Argo CD has to know that it suspended the workloads, otherwise it could not tell them
-from workloads that someone scaled to zero by hand. The Application status gets an optional field for this:
+To resume correctly, Argo CD has to know that it suspended the workloads. Without that it could not tell
+them from workloads that someone scaled to zero by hand. The Application status gets an optional field for
+this:
 
 ```yaml
 status:
@@ -136,13 +137,13 @@ status:
     startedAt: "2026-10-21T18:00:00Z"
 ```
 
-`Suspending` and `Resuming` last until the affected resources are `Synced`. After a resume completes, the
-field is removed.
+`Suspending` and `Resuming` last until the affected resources are `Synced`. Argo CD removes the field once a
+resume completes.
 
 #### Application health
 
-The health of a suspended Application is `Suspended` when all of its resources are healthy. A worse state,
-such as `Progressing` while Pods terminate or `Degraded`, is reported as it is. `Suspended` is an existing
+The health of a suspended Application is `Suspended` when all of its resources are healthy. Argo CD reports
+a worse state, such as `Progressing` while Pods terminate or `Degraded`, as it is. `Suspended` is an existing
 status code that the UI, the CLI, badges, metrics and notifications already handle.
 
 #### The `toggle-suspend` action
