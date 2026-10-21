@@ -15,8 +15,8 @@ last-updated: 2026-10-21
 
 # Suspend an Application
 
-Put every workload of an Application to sleep with one action, keep it asleep while the Application stays
-in sync with Git, and wake it up again with one action.
+This proposal lets a user scale every workload of an Application down with one action and bring it back
+with another, while the Application stays in sync with Git the whole time.
 
 ## Summary
 
@@ -40,9 +40,9 @@ Parking an Application today means one of:
 * deleting the Application or its resources and recreating them later;
 * committing replica changes to Git and reverting them.
 
-Users ask for this to save compute on non-production environments, to free a database for maintenance or a
-credential rotation while nothing connects to it, and to hand idle environments back without losing their
-configuration.
+Users ask for this mostly to save compute on non-production environments. Another common reason is a
+database maintenance or credential rotation that needs every client disconnected for a while, after which
+the environment should come back with its configuration intact.
 
 ### Goals
 
@@ -138,8 +138,8 @@ right after `NormalizeTargetObjects`, when the Application carries the annotatio
 the resource tree and syncs all work on the transformed targets, because `SyncAppState` obtains its targets
 from `CompareAppState` as well.
 
-Target objects whose kind has no suspend script are left unchanged. If any of them is a DaemonSet, a Job or a
-Pod, the Application gets a `SuspendWarning` condition that lists them.
+The controller leaves target objects alone when their kind has no suspend script. If any of them is a
+DaemonSet, a Job or a Pod, the Application gets a `SuspendWarning` condition that lists them.
 
 Fields that a suspend script sets are applied by Argo CD, so Argo CD owns them: they are recorded in
 `last-applied-configuration` with client-side apply and owned by the Argo CD field manager with server-side
@@ -156,9 +156,9 @@ status:
     startedAt: "2026-10-21T18:00:00Z"
 ```
 
-The field is the controller's memory of a transition. It is required to resume an Application that has
-automated sync disabled: without it the controller cannot tell a resource that it suspended from a resource
-that someone scaled to zero by hand.
+The controller uses this field to remember that a transition is in progress. Resuming an Application with
+automated sync disabled depends on it, since otherwise the controller cannot tell a resource it suspended
+from one that someone scaled to zero by hand.
 
 #### Controller-initiated suspend and resume syncs
 
@@ -181,8 +181,8 @@ iteration.
 
 #### Syncs while suspended
 
-Any sync of a suspended Application (automated, manual or rollback) applies the transformed desired state.
-Two rules are added in `SyncAppState`:
+Any sync of a suspended Application (automated, manual or rollback) applies the transformed desired state,
+and `SyncAppState` follows two extra rules for it:
 
 * Hooks are skipped. `PreSync` migrations and similar hooks would start Pods or fail against hibernated
   dependencies.
@@ -274,16 +274,17 @@ p, role:night-shift, applications, action/argoproj.io/Application/toggle-suspend
 
 ### Risks and Mitigations
 
-* **A workload whose replicas are not in Git**, typically because an HPA manages them, is scaled to 0 by the
-  script and comes back with the Kubernetes default of 1 replica on resume, after which the HPA scales it. An
-  HPA is expected to leave a target with 0 replicas alone. Both behaviours must be confirmed by e2e tests
+* When Git does not set a workload's replicas, usually because an HPA manages them, the script scales the
+  workload to 0, and on resume it comes back with the Kubernetes default of 1 replica before the HPA takes
+  over. An HPA is expected to leave a target with 0 replicas alone. E2e tests must confirm both behaviours
   before the design relies on them.
-* **A manual scale to 0 on a suspended Application** is indistinguishable from the suspended state and is
-  restored to the Git value on resume. This is intended: resume means "back to Git".
-* **Downgrading** to a controller without this feature is the same as resuming: the desired state comes from
-  Git again and the next sync restores the workloads.
-* **The diff view shows the transformed desired state**, for example `replicas: 0` where Git says 3. The
-  Application health message and the status panel state that the Application is suspended.
+* Someone who scales a workload of a suspended Application to 0 by hand gets the Git value back on resume,
+  because that change looks the same as the suspended state. This is intended, since resume returns to what
+  Git declares.
+* Downgrading to a controller without this feature works like a resume: the desired state comes from Git
+  again and the next sync restores the workloads.
+* The diff view shows the transformed desired state, for example `replicas: 0` where Git says 3. The
+  Application health message and the status panel say that the Application is suspended.
 
 ### Upgrade / Downgrade Strategy
 
@@ -325,25 +326,38 @@ End-to-end tests:
 
 ## Drawbacks
 
-* The desired state that Argo CD applies is no longer exactly what Git renders while the annotation is set.
-  Every other Argo CD feature treats Git as the only input to the desired state.
+* Without the annotation, the desired state is what the Application's sources render with the parameters in
+  its spec. Suspend scripts add one more input, so while the annotation is set Argo CD applies something
+  that Git alone does not describe.
 * A suspend set from the UI is state outside Git. It is visible on the Application and reverts to Git on
   resume, but it is not reviewed like a commit.
 
 ## Alternatives
 
-* **An action that patches every workload of the Application.** Resource actions can only patch the object
-  they run on, so this needs a server change that lets an Application action write to its child resources on
-  the destination cluster. The patched workloads are drift from Git, self-heal reverts them, and resume needs
-  stored replica counts.
-* **Automatically added `ignoreDifferences`.** Ignored fields hide the change from the diff only. Whether a
-  later sync keeps or resets them depends on the apply mode and on `RespectIgnoreDifferences`. The
-  Application reports `Synced` while drifting from Git, and Argo CD would have to edit the user's
-  `spec.ignoreDifferences` and undo the edit precisely on resume.
-* **A new health status such as `Paused`.** Health codes are a closed set used by sync waves, `app wait`,
-  badges, metrics labels, notifications, the UI and user-written Lua health checks of Applications. A new
-  code breaks all of them, while the existing `Suspended` already has the needed meaning.
-* **A `spec` field instead of an annotation.** It would make the ApplicationSet and parent Applications revert
-  UI changes unless every user configures `ignoreApplicationDifferences` or parent `ignoreDifferences`.
-* **Deleting the resources and keeping the Application.** This loses state that scaling keeps, and recreating
-  resources takes longer than scaling them.
+### An action that patches every workload
+
+Resource actions can only patch the object they run on, so this needs a server change that lets an
+Application action write to its child resources on the destination cluster. The patched workloads then
+drift from Git, self-heal reverts them, and resume needs stored replica counts.
+
+### Automatically added `ignoreDifferences`
+
+Ignored fields are hidden from the diff and nothing more. Whether a later sync keeps or resets them depends
+on the apply mode and on `RespectIgnoreDifferences`. The Application reports `Synced` while it drifts from
+Git, and Argo CD would have to edit the user's `spec.ignoreDifferences` and undo exactly that edit on
+resume.
+
+### A new health status such as `Paused`
+
+Health codes are a closed set that sync waves, `app wait`, badges, metrics labels, notifications, the UI and
+user-written Lua health checks of Applications all depend on. A new code breaks each of them, and the
+existing `Suspended` already means what this feature needs.
+
+### A `spec` field instead of an annotation
+
+The ApplicationSet and parent Applications would revert a suspend set from the UI unless every user
+configured `ignoreApplicationDifferences` or `ignoreDifferences` on the parent.
+
+### Deleting the resources and keeping the Application
+
+Deleting loses state that scaling keeps, and recreating resources takes longer than scaling them.
