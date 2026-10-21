@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/cache"
 
 	"github.com/argoproj/argo-cd/v3/pkg/apis/application/v1alpha1"
 	"github.com/argoproj/argo-cd/v3/reposerver/apiclient"
@@ -286,4 +287,221 @@ func TestNeedRefreshAppStatusSuspendStateDiffers(t *testing.T) {
 	needRefresh, _, compareWith := ctrl.needRefreshAppStatus(withSuspend(app, true, nil), time.Hour, 2*time.Hour)
 	assert.True(t, needRefresh)
 	assert.Equal(t, CompareWithLatest, compareWith)
+}
+
+func TestSuspendSync(t *testing.T) {
+	deployment := v1alpha1.SyncOperationResource{Group: "apps", Kind: "Deployment", Name: "guestbook", Namespace: test.FakeDestNamespace}
+	outOfSync := func(resources ...v1alpha1.SyncOperationResource) *comparisonResult {
+		return &comparisonResult{
+			syncStatus:       &v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeOutOfSync, Revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+			suspendResources: resources,
+		}
+	}
+	synced := &comparisonResult{syncStatus: &v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeSynced}}
+	phase := func(p v1alpha1.ApplicationSuspendPhase) *v1alpha1.ApplicationSuspendStatus {
+		return &v1alpha1.ApplicationSuspendStatus{Phase: p}
+	}
+	storedOperation := func(t *testing.T, ctrl *ApplicationController, app *v1alpha1.Application) *v1alpha1.Operation {
+		t.Helper()
+		stored, err := ctrl.applicationClientset.ArgoprojV1alpha1().Applications(app.Namespace).Get(t.Context(), app.Name, metav1.GetOptions{})
+		require.NoError(t, err)
+		return stored.Operation
+	}
+
+	t.Run("StartsSuspend", func(t *testing.T) {
+		app := withSuspend(newFakeApp(), true, nil)
+		ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
+
+		cond, _, initiated := ctrl.suspendSync(t.Context(), app, outOfSync(deployment), true)
+
+		assert.Nil(t, cond)
+		assert.True(t, initiated)
+		assert.Equal(t, v1alpha1.ApplicationSuspendPhaseSuspending, app.Status.Suspend.Phase)
+		op := storedOperation(t, ctrl, app)
+		require.NotNil(t, op)
+		assert.True(t, op.InitiatedBy.Automated)
+		assert.True(t, isSuspendOperation(op))
+		assert.Equal(t, suspendOperationReason, suspendReasonOf(op))
+		assert.False(t, op.Sync.Prune)
+		assert.Equal(t, []v1alpha1.SyncOperationResource{deployment}, op.Sync.Resources)
+		assert.Equal(t, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", op.Sync.Revision)
+	})
+
+	t.Run("StartsSuspendWithoutSyncPolicy", func(t *testing.T) {
+		app := withSuspend(newFakeApp(), true, nil)
+		app.Spec.SyncPolicy = nil
+		ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
+
+		_, _, initiated := ctrl.suspendSync(t.Context(), app, outOfSync(deployment), true)
+
+		assert.True(t, initiated)
+		assert.NotNil(t, storedOperation(t, ctrl, app))
+	})
+
+	t.Run("CompletesSuspend", func(t *testing.T) {
+		app := withSuspend(newFakeApp(), true, phase(v1alpha1.ApplicationSuspendPhaseSuspending))
+		ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
+
+		_, _, initiated := ctrl.suspendSync(t.Context(), app, synced, true)
+
+		assert.False(t, initiated)
+		assert.Equal(t, v1alpha1.ApplicationSuspendPhaseSuspended, app.Status.Suspend.Phase)
+	})
+
+	t.Run("StartsResume", func(t *testing.T) {
+		app := withSuspend(newFakeApp(), false, phase(v1alpha1.ApplicationSuspendPhaseSuspended))
+		ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
+
+		_, _, initiated := ctrl.suspendSync(t.Context(), app, outOfSync(deployment), true)
+
+		assert.True(t, initiated)
+		assert.Equal(t, v1alpha1.ApplicationSuspendPhaseResuming, app.Status.Suspend.Phase)
+		assert.Equal(t, resumeOperationReason, suspendReasonOf(storedOperation(t, ctrl, app)))
+	})
+
+	t.Run("CompletesResume", func(t *testing.T) {
+		app := withSuspend(newFakeApp(), false, phase(v1alpha1.ApplicationSuspendPhaseResuming))
+		ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
+
+		ctrl.suspendSync(t.Context(), app, synced, true)
+
+		assert.Nil(t, app.Status.Suspend)
+	})
+
+	t.Run("ResumeRequestedWhileSuspending", func(t *testing.T) {
+		app := withSuspend(newFakeApp(), false, phase(v1alpha1.ApplicationSuspendPhaseSuspending))
+		ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
+
+		ctrl.suspendSync(t.Context(), app, outOfSync(deployment), true)
+
+		assert.Equal(t, v1alpha1.ApplicationSuspendPhaseResuming, app.Status.Suspend.Phase)
+	})
+
+	t.Run("DoesNothingWhenNotSuspended", func(t *testing.T) {
+		app := newFakeApp()
+		ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
+
+		cond, _, initiated := ctrl.suspendSync(t.Context(), app, outOfSync(deployment), true)
+
+		assert.Nil(t, cond)
+		assert.False(t, initiated)
+		assert.Nil(t, app.Status.Suspend)
+		assert.Nil(t, storedOperation(t, ctrl, app))
+	})
+
+	t.Run("SyncWindowPostponesSync", func(t *testing.T) {
+		app := withSuspend(newFakeApp(), true, nil)
+		ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
+
+		_, _, initiated := ctrl.suspendSync(t.Context(), app, outOfSync(deployment), false)
+
+		assert.False(t, initiated)
+		assert.Equal(t, v1alpha1.ApplicationSuspendPhaseSuspending, app.Status.Suspend.Phase)
+		assert.Nil(t, storedOperation(t, ctrl, app))
+	})
+
+	t.Run("WaitsForRunningOperation", func(t *testing.T) {
+		app := withSuspend(newFakeApp(), true, phase(v1alpha1.ApplicationSuspendPhaseSuspending))
+		app.Operation = &v1alpha1.Operation{Sync: &v1alpha1.SyncOperation{}}
+		ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
+
+		_, _, initiated := ctrl.suspendSync(t.Context(), app, outOfSync(deployment), true)
+
+		assert.False(t, initiated)
+		assert.False(t, isSuspendOperation(storedOperation(t, ctrl, app)))
+	})
+
+	t.Run("UnknownComparisonDoesNotComplete", func(t *testing.T) {
+		app := withSuspend(newFakeApp(), true, phase(v1alpha1.ApplicationSuspendPhaseSuspending))
+		ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
+
+		ctrl.suspendSync(t.Context(), app, &comparisonResult{syncStatus: &v1alpha1.SyncStatus{Status: v1alpha1.SyncStatusCodeUnknown}}, true)
+
+		assert.Equal(t, v1alpha1.ApplicationSuspendPhaseSuspending, app.Status.Suspend.Phase)
+	})
+
+	t.Run("ComparisonErrorDoesNotComplete", func(t *testing.T) {
+		app := withSuspend(newFakeApp(), true, phase(v1alpha1.ApplicationSuspendPhaseSuspending))
+		app.Status.Conditions = []v1alpha1.ApplicationCondition{{Type: v1alpha1.ApplicationConditionComparisonError, Message: "boom"}}
+		ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
+
+		ctrl.suspendSync(t.Context(), app, synced, true)
+
+		assert.Equal(t, v1alpha1.ApplicationSuspendPhaseSuspending, app.Status.Suspend.Phase)
+	})
+
+	t.Run("FailedAttemptBacksOff", func(t *testing.T) {
+		app := withSuspend(newFakeApp(), true, phase(v1alpha1.ApplicationSuspendPhaseSuspending))
+		finishedAt := metav1.Now()
+		app.Status.OperationState = &v1alpha1.OperationState{
+			Operation: v1alpha1.Operation{
+				Sync: &v1alpha1.SyncOperation{SelfHealAttemptsCount: 1},
+				Info: []*v1alpha1.Info{{Name: suspendOperationInfoName, Value: suspendOperationReason}},
+			},
+			Phase:      synccommon.OperationFailed,
+			Message:    "quota exceeded",
+			FinishedAt: &finishedAt,
+		}
+		ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
+		ctrl.selfHealTimeout = time.Minute
+
+		cond, _, initiated := ctrl.suspendSync(t.Context(), app, outOfSync(deployment), true)
+
+		assert.False(t, initiated)
+		require.NotNil(t, cond)
+		assert.Equal(t, v1alpha1.ApplicationConditionSyncError, cond.Type)
+		assert.Contains(t, cond.Message, "Failed last suspend attempt: quota exceeded")
+		assert.Nil(t, storedOperation(t, ctrl, app))
+	})
+
+	t.Run("FailedAttemptIsRetried", func(t *testing.T) {
+		app := withSuspend(newFakeApp(), true, phase(v1alpha1.ApplicationSuspendPhaseSuspending))
+		finishedAt := metav1.NewTime(time.Now().Add(-time.Hour))
+		app.Status.OperationState = &v1alpha1.OperationState{
+			Operation: v1alpha1.Operation{
+				Sync: &v1alpha1.SyncOperation{SelfHealAttemptsCount: 1},
+				Info: []*v1alpha1.Info{{Name: suspendOperationInfoName, Value: suspendOperationReason}},
+			},
+			Phase:      synccommon.OperationFailed,
+			FinishedAt: &finishedAt,
+		}
+		ctrl := newFakeController(t.Context(), &fakeData{apps: []runtime.Object{app}}, nil)
+		ctrl.selfHealTimeout = time.Minute
+
+		_, _, initiated := ctrl.suspendSync(t.Context(), app, outOfSync(deployment), true)
+
+		assert.True(t, initiated)
+		assert.Equal(t, int64(2), storedOperation(t, ctrl, app).Sync.SelfHealAttemptsCount)
+	})
+}
+
+func TestProcessAppRefreshStartsSuspend(t *testing.T) {
+	three := int64(3)
+	app := withSuspend(newFakeApp(), true, nil)
+	ctrl := newFakeController(t.Context(), &fakeData{
+		apps: []runtime.Object{app, &defaultProj},
+		manifestResponse: &apiclient.ManifestResponse{
+			Manifests: []string{manifestOf(t, suspendTestDeployment(&three, nil))},
+			Namespace: test.FakeDestNamespace,
+			Server:    test.FakeClusterURL,
+			Revision:  "abc123",
+		},
+		managedLiveObjs: map[kube.ResourceKey]*unstructured.Unstructured{
+			kube.GetResourceKey(suspendTestDeployment(&three, nil)): suspendTestDeployment(&three, nil),
+		},
+	}, nil)
+	key, err := cache.MetaNamespaceKeyFunc(app)
+	require.NoError(t, err)
+	ctrl.appRefreshQueue.AddRateLimited(key)
+	ctrl.requestAppRefresh(app.QualifiedName(), CompareWithLatest.Pointer(), nil)
+
+	ctrl.processAppRefreshQueueItem()
+
+	stored, err := ctrl.applicationClientset.ArgoprojV1alpha1().Applications(app.Namespace).Get(t.Context(), app.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	require.NotNil(t, stored.Operation)
+	assert.Equal(t, suspendOperationReason, suspendReasonOf(stored.Operation))
+	assert.Equal(t, []v1alpha1.SyncOperationResource{{Group: "apps", Kind: "Deployment", Name: "guestbook", Namespace: test.FakeDestNamespace}}, stored.Operation.Sync.Resources)
+	require.NotNil(t, stored.Status.Suspend)
+	assert.Equal(t, v1alpha1.ApplicationSuspendPhaseSuspending, stored.Status.Suspend.Phase)
 }
