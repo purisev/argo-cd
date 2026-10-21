@@ -1,0 +1,8 @@
+apiVersion: psmdb.percona.com/v1
+kind: PerconaServerMongoDB
+metadata:
+  name: example
+  namespace: default
+spec:
+  pause: false
+  crVersion: 1.16.0

@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/scaledobject.yaml
+  expectedOutputPath: testdata/suspend/scaledobject-suspended.yaml
+- inputPath: testdata/suspend/scaledobject-with-annotations.yaml
+  expectedOutputPath: testdata/suspend/scaledobject-with-annotations-suspended.yaml

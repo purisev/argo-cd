@@ -1,0 +1,23 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: example
+  namespace: default
+  annotations:
+    example.com/owner: "team"
+    autoscaling.keda.sh/paused: "true"
+spec:
+  jobTargetRef:
+    template:
+      spec:
+        restartPolicy: Never
+        containers:
+        - name: example
+          image: quay.io/argoprojlabs/argocd-e2e-container:0.2
+  triggers:
+  - type: cron
+    metadata:
+      timezone: Etc/UTC
+      start: 0 8 * * *
+      end: 0 18 * * *
+      desiredReplicas: "1"

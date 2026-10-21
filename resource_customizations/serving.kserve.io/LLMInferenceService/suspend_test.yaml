@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/llminferenceservice.yaml
+  expectedOutputPath: testdata/suspend/llminferenceservice-suspended.yaml
+- inputPath: testdata/suspend/llminferenceservice-with-annotations.yaml
+  expectedOutputPath: testdata/suspend/llminferenceservice-with-annotations-suspended.yaml
