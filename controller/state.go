@@ -119,6 +119,9 @@ type comparisonResult struct {
 	hasPreDeleteHooks  bool
 	// revisionsMayHaveChanges indicates if there are any possibilities that the revisions contain changes
 	revisionsMayHaveChanges bool
+	// suspendResources lists the out-of-sync resources that have a suspend script; syncing them suspends or resumes
+	// the application's workloads
+	suspendResources []v1alpha1.SyncOperationResource
 }
 
 func (res *comparisonResult) GetSyncStatus() *v1alpha1.SyncStatus {
@@ -834,6 +837,9 @@ func (m *appStateManager) CompareAppState(ctx context.Context, app *v1alpha1.App
 	}
 	ts.AddCheckpoint("dedup_ms")
 
+	suspension := suspendTargetObjects(app, targetObjs, resourceOverrides, now)
+	conditions = append(conditions, suspension.conditions...)
+
 	liveObjByKey, err := m.liveStateCache.GetManagedLiveObjs(destCluster, app, targetObjs)
 	if err != nil {
 		liveObjByKey = make(map[kubeutil.ResourceKey]*unstructured.Unstructured)
@@ -984,6 +990,8 @@ func (m *appStateManager) CompareAppState(ctx context.Context, app *v1alpha1.App
 	ts.AddCheckpoint("diff_ms")
 
 	syncCode := v1alpha1.SyncStatusCodeSynced
+	var suspendResources []v1alpha1.SyncOperationResource
+	var suspendHiddenResources []string
 	managedResources := make([]managedResource, len(reconciliation.Target))
 	resourceSummaries := make([]v1alpha1.ResourceStatus, len(reconciliation.Target))
 	for i, targetObj := range reconciliation.Target {
@@ -1071,6 +1079,23 @@ func (m *appStateManager) CompareAppState(ctx context.Context, app *v1alpha1.App
 			resState.Status = v1alpha1.SyncStatusCodeUnknown
 		}
 
+		if _, ok := suspension.scripts[kubeutil.GetResourceKey(obj)]; ok && targetObj != nil && liveObj != nil && !resState.Hook {
+			switch resState.Status {
+			case v1alpha1.SyncStatusCodeOutOfSync:
+				suspendResources = append(suspendResources, v1alpha1.SyncOperationResource{
+					Group: resState.Group, Kind: resState.Kind, Name: resState.Name, Namespace: resState.Namespace,
+				})
+			case v1alpha1.SyncStatusCodeSynced:
+				// A synced resource that is not in its suspended form has the suspended fields hidden from the diff,
+				// typically by ignoreDifferences.
+				if app.IsSuspended() {
+					if inSuspendedForm, err := suspension.isInSuspendedForm(resourceOverrides, liveObj); err == nil && !inSuspendedForm {
+						suspendHiddenResources = append(suspendHiddenResources, resourceID(liveObj))
+					}
+				}
+			}
+		}
+
 		resourceVersion := ""
 		if liveObj != nil {
 			resourceVersion = liveObj.GetResourceVersion()
@@ -1110,6 +1135,16 @@ func (m *appStateManager) CompareAppState(ctx context.Context, app *v1alpha1.App
 	healthStatus, healthMessage, err := setApplicationHealth(managedResources, resourceSummaries, resourceOverrides, app, m.persistResourceHealth)
 	if err != nil {
 		conditions = append(conditions, v1alpha1.ApplicationCondition{Type: v1alpha1.ApplicationConditionComparisonError, Message: "error setting app health: " + err.Error(), LastTransitionTime: &now})
+	}
+	// A suspended application is reported as Suspended once all its resources with a suspend script are in their
+	// suspended form, unless a resource is in a worse state.
+	if app.IsSuspended() && !failedToLoadObjs && len(suspendResources) == 0 &&
+		(healthStatus == health.HealthStatusHealthy || healthStatus == health.HealthStatusSuspended) {
+		healthStatus = health.HealthStatusSuspended
+		healthMessage = suspendedHealthMessage
+	}
+	if len(suspendHiddenResources) > 0 {
+		conditions = append(conditions, suspendWarning("Resources are not suspended because their suspended fields are ignored in the diff", suspendHiddenResources, now))
 	}
 
 	for _, manifestInfo := range manifestInfos {
@@ -1152,6 +1187,7 @@ func (m *appStateManager) CompareAppState(ctx context.Context, app *v1alpha1.App
 		hasPostDeleteHooks:      hasPostDeleteHooks,
 		hasPreDeleteHooks:       hasPreDeleteHooks,
 		revisionsMayHaveChanges: revisionsMayHaveChanges,
+		suspendResources:        suspendResources,
 	}
 
 	if hasMultipleSources {
@@ -1170,6 +1206,7 @@ func (m *appStateManager) CompareAppState(ctx context.Context, app *v1alpha1.App
 		v1alpha1.ApplicationConditionSharedResourceWarning:   true,
 		v1alpha1.ApplicationConditionRepeatedResourceWarning: true,
 		v1alpha1.ApplicationConditionExcludedResourceWarning: true,
+		v1alpha1.ApplicationConditionSuspendWarning:          true,
 	})
 	ts.AddCheckpoint("health_ms")
 	compRes.timings = ts.Timings()
@@ -1200,6 +1237,11 @@ func useDiffCache(noCache bool, manifestInfos []*apiclient.ManifestResponse, sou
 	refreshType, refreshRequested := app.IsRefreshRequested()
 	if refreshRequested {
 		log.WithField("useDiffCache", "false").Debugf("refresh type %s requested", string(refreshType))
+		return false
+	}
+	// the cached diffs were computed against target objects in the other suspend state
+	if suspendStateDiffers(app) {
+		log.WithField("useDiffCache", "false").Debug("suspend state differs")
 		return false
 	}
 	// serverSideDiff should still use cache even if status is expired.
