@@ -1,0 +1,19 @@
+apiVersion: numaplane.numaproj.io/v1alpha1
+kind: PipelineRollout
+metadata:
+  name: example
+  namespace: default
+spec:
+  pipeline:
+    spec:
+      vertices:
+      - name: in
+        source:
+          generator:
+            rpu: 5
+      - name: out
+        sink:
+          log: {}
+      edges:
+      - from: in
+        to: out

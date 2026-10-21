@@ -1,0 +1,3 @@
+tests:
+- inputPath: testdata/suspend/monovertex.yaml
+  expectedOutputPath: testdata/suspend/monovertex-suspended.yaml

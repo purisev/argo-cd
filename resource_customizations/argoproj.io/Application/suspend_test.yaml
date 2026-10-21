@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/application.yaml
+  expectedOutputPath: testdata/suspend/application-suspended.yaml
+- inputPath: testdata/suspend/application-with-annotations.yaml
+  expectedOutputPath: testdata/suspend/application-with-annotations-suspended.yaml

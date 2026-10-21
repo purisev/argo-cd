@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/scaledjob.yaml
+  expectedOutputPath: testdata/suspend/scaledjob-suspended.yaml
+- inputPath: testdata/suspend/scaledjob-with-annotations.yaml
+  expectedOutputPath: testdata/suspend/scaledjob-with-annotations-suspended.yaml

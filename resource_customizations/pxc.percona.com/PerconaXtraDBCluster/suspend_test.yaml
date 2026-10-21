@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/perconaxtradbcluster.yaml
+  expectedOutputPath: testdata/suspend/perconaxtradbcluster-suspended.yaml
+- inputPath: testdata/suspend/perconaxtradbcluster-unpaused.yaml
+  expectedOutputPath: testdata/suspend/perconaxtradbcluster-unpaused-suspended.yaml
