@@ -21,16 +21,16 @@ with another, while the Application stays in sync with Git the whole time.
 ## Summary
 
 A user marks an Application as suspended with the `argocd.argoproj.io/suspend: "true"` annotation, either
-from Git or with the `toggle-suspend` resource action on the Application. While the annotation is set, the
-application controller transforms the desired state before diffing and syncing: Deployments and StatefulSets
-get `replicas: 0`, CronJobs get `suspend: true`, KEDA ScaledObjects are paused at zero replicas,
-CloudNativePG Clusters are hibernated, and so on. The transformation for each kind is a Lua script, shipped
+in Git or with the `toggle-suspend` resource action on the Application. While the annotation is set, Argo CD
+transforms the desired state of the Application's resources before it compares and syncs them: Deployments
+and StatefulSets get `replicas: 0`, CronJobs get `suspend: true`, KEDA ScaledObjects are paused at zero
+replicas, CloudNativePG Clusters are hibernated, and so on. Each kind is transformed by a Lua script, shipped
 for common kinds and overridable in `argocd-cm`.
 
 Because the transformed manifests are the desired state, the Application stays `Synced` and self-heal keeps
-the workloads asleep instead of fighting the change. The controller applies the transformation itself even
-when automated sync is disabled, skips hooks, and reports the Application health as `Suspended`. Removing the
-annotation brings the desired state back to Git and the controller restores the workloads.
+the workloads stopped instead of fighting the change. Argo CD applies the transformation even when automated
+sync is disabled, skips hooks, and reports the Application health as `Suspended`. Removing the annotation
+makes Git the desired state again, and Argo CD restores the workloads.
 
 ## Motivation
 
@@ -51,7 +51,7 @@ the environment should come back with its configuration intact.
   state.
 * Resuming restores exactly what Git declares. Argo CD does not store original replica counts.
 * Suspend and resume work whether or not automated sync is enabled.
-* The set of suspendable kinds and how each one is suspended is configurable without code changes.
+* Admins can change how a kind is suspended, or add kinds, without code changes.
 * Applications managed by an ApplicationSet or by a parent Application can be suspended from the UI without
   the parent reverting the change.
 * No new health status code.
@@ -84,74 +84,51 @@ Secret in Git and resume the Application. No Pod connects with the old credentia
 As a platform engineer, I suspend the parent Application of an app-of-apps tree. Every child Application is
 suspended with it, and resuming the parent resumes the children.
 
-### Implementation Details
+### Implementation Details/Notes/Constraints
 
 #### The suspend annotation
 
-```yaml
-metadata:
-  annotations:
-    argocd.argoproj.io/suspend: "true"
-```
+Only the value `"true"` suspends an Application. The flag is an annotation rather than a `spec` field so that
+the ApplicationSet controller and parent Applications can leave it alone when it is set from the UI (see
+below).
 
-Any other value, or no annotation, means the Application is not suspended. The flag is an annotation rather
-than a `spec` field for two reasons. The ApplicationSet controller preserves selected annotations of the
-Applications it manages (see below), so a flag set from the UI survives the ApplicationSet. A parent
-Application in the app-of-apps pattern does not treat an annotation that its manifest does not declare as
-drift, so the parent does not revert it either.
+#### Suspend scripts
 
-#### Per-kind suspend scripts
-
-A suspend script is a Lua script that receives the desired object as `obj` and returns it in its suspended
-form. Built-in scripts live in `resource_customizations/<group>/<kind>/suspend.lua` and are tested by
-`suspend_test.yaml` next to them, in the same way as `health.lua` and `health_test.yaml`. An admin overrides
-or adds a script in `argocd-cm`:
-
-```yaml
-data:
-  resource.customizations.suspend.apps_Deployment: |
-    obj.spec.replicas = 0
-    return obj
-```
-
-The script is stored in a new `SuspendLua` field of `ResourceOverride`, next to `HealthLua` and `Actions`.
+A suspend script is a Lua script that receives a desired object as `obj` and returns it in its suspended
+form. The result must keep the object's group, kind, name and namespace. Built-in scripts live next to the
+health checks in `resource_customizations/<group>/<kind>/suspend.lua`, and admins override or add them in
+`argocd-cm` under `resource.customizations.suspend.<group>_<kind>`.
 
 A kind gets a built-in script when it has a way to stop its Pods while keeping its data and configuration,
-and when the script's tests confirm how the kind behaves once stopped. Typical forms are
-`spec.replicas: 0` for Deployments and StatefulSets, `spec.suspend: true` for CronJobs, the pause
-annotations of KEDA ScaledObjects and `cnpg.io/hibernation: "on"` for CloudNativePG Clusters. The script for
-`argoproj.io/Application` sets the suspend annotation on child Applications (see the cascade below).
+and when the script's tests confirm how the kind behaves once stopped. Switches that stop only an operator's
+reconciliation or a rollout, such as Flux `suspend` or Deployment `spec.paused`, do not qualify. Neither do
+switches that stop cluster infrastructure, such as Cluster API machine replicas, since other Applications
+run on it; an admin who wants that adds the script in `argocd-cm`. The list of built-in scripts is
+generated into the operator manual, like the list of built-in resource actions.
 
-Two kinds of switches do not qualify:
+#### Desired state while suspended
 
-* Switches that stop only an operator's reconciliation, or only a rollout, while the Pods keep running, such
-  as Flux `suspend` or Deployment `spec.paused`.
-* Switches that stop cluster infrastructure, such as Cluster API machine replicas. Other Applications run on
-  that infrastructure, so an admin who wants it adds the script in `argocd-cm`.
+While the annotation is set, Argo CD runs the suspend scripts on the desired objects before diffing, so the
+diff, the sync status and every sync of the Application use the suspended form. Argo CD applies the fields
+that the scripts set and therefore owns them, with client-side and with server-side apply. Once the
+annotation is removed, the next sync of those resources removes the fields or restores the values from Git.
 
-The list of built-in scripts is generated into `docs/operator-manual/resource_suspend_builtin.md` from
-`resource_customizations`, in the same way as the list of built-in actions.
+Every sync of a suspended Application, whether automated, manual or a rollback, follows two more rules:
 
-A script must return an object of the same group, kind, name and namespace. Any other result is a
-comparison error.
+* Hooks do not run. `PreSync` migrations and similar hooks would start Pods or fail against hibernated
+  dependencies.
+* Sync waves do not wait for a resource whose health is `Suspended`, so a paused ScaledObject or a
+  hibernated database does not block the waves after it. The resource health shown to users is unchanged.
 
-#### Transforming the desired state
+#### Suspend and resume without automated sync
 
-`appStateManager.CompareAppState` (`controller/state.go`) applies the suspend script of each target object
-right after `NormalizeTargetObjects`, when the Application carries the annotation. Diffing, the sync status,
-the resource tree and syncs all work on the transformed targets, because `SyncAppState` obtains its targets
-from `CompareAppState` as well.
+Argo CD suspends and resumes the workloads itself, so the action takes effect even when automated sync is
+disabled. When the annotation appears or disappears, Argo CD syncs the out-of-sync resources that have a
+suspend script, without hooks and without pruning. These syncs follow the rules of automated sync: they wait
+for a running operation to finish, respect sync windows and back off after a failure.
 
-The controller leaves target objects alone when their kind has no suspend script. If any of them is a
-DaemonSet or a Pod, the Application gets a `SuspendWarning` condition that lists them.
-
-Argo CD applies the fields that a suspend script sets, so it owns them. With client-side apply they end up
-in `last-applied-configuration`, and with server-side apply the Argo CD field manager owns them. Once the
-annotation is gone, the next sync removes those fields or restores the values from Git.
-
-#### Suspend status
-
-The Application status gets an optional `suspend` field:
+To resume correctly, Argo CD has to know that it suspended the workloads, otherwise it could not tell them
+from workloads that someone scaled to zero by hand. The Application status gets an optional field for this:
 
 ```yaml
 status:
@@ -160,81 +137,38 @@ status:
     startedAt: "2026-10-21T18:00:00Z"
 ```
 
-The controller uses this field to remember that a transition is in progress. Resuming an Application with
-automated sync disabled depends on it, since otherwise the controller cannot tell a resource it suspended
-from one that someone scaled to zero by hand.
-
-#### Controller-initiated suspend and resume syncs
-
-After `CompareAppState`, `processAppRefreshQueueItem` calls a new `suspendSync` before `autoSync`:
-
-| Annotation | `status.suspend.phase` | Action |
-|------------|------------------------|--------|
-| set | absent or `Resuming` | set phase `Suspending` |
-| set | `Suspending` | sync the out-of-sync resources that have a suspend script; once all of them are `Synced`, set phase `Suspended` |
-| set | `Suspended` | nothing; self-heal, if enabled, keeps the state |
-| absent | `Suspending` or `Suspended` | set phase `Resuming` |
-| absent | `Resuming` | sync the out-of-sync resources that have a suspend script; once all of them are `Synced`, clear `status.suspend` |
-
-The sync operation lists the resources explicitly, does not prune, and is initiated as automated. Selective
-syncs already skip hooks (`controller/sync.go`). The operation follows the same rules as automated sync: it
-is not started while another operation runs, it respects sync windows as an automated sync
-(`CanSync(false, …)`), and a failed attempt is retried with the self-heal backoff and reported as a
-`SyncError` condition. If `suspendSync` starts an operation, `autoSync` sees it and does nothing in that
-iteration.
-
-#### Syncs while suspended
-
-Any sync of a suspended Application (automated, manual or rollback) applies the transformed desired state,
-and `SyncAppState` follows two extra rules for it:
-
-* Hooks are skipped. `PreSync` migrations and similar hooks would start Pods or fail against hibernated
-  dependencies.
-* Sync waves do not wait on a `Suspended` resource. The health override passed to the sync context reports
-  `Suspended` as `Healthy` for wave progression only, so a paused ScaledObject or a hibernated database does
-  not block the waves after it. The resource health shown to users is unchanged.
+`Suspending` and `Resuming` last until the affected resources are `Synced`. After a resume completes, the
+field is removed.
 
 #### Application health
 
-`setApplicationHealth` keeps computing the worst health of the resources. When the Application carries the
-annotation and that worst health is `Healthy`, the Application health becomes `Suspended` with the message
-`Application is suspended`. Worse states, such as `Progressing` while Pods terminate or `Degraded`, are
-reported as they are.
-
-`Suspended` is an existing status code, documented as "suspended and waiting for some external event to
-resume". The UI, the CLI (`argocd app wait --suspended`), badges, metrics and notifications already handle
-it.
+The health of a suspended Application is `Suspended` when all of its resources are healthy. A worse state,
+such as `Progressing` while Pods terminate or `Degraded`, is reported as it is. `Suspended` is an existing
+status code that the UI, the CLI, badges, metrics and notifications already handle.
 
 #### The `toggle-suspend` action
 
-`resource_customizations/argoproj.io/Application/actions/` gets a `toggle-suspend` action that sets or
-removes the annotation. `discovery.lua` offers it as "Suspend" or "Resume" depending on the current value.
-The action patches only the Application. RBAC grants it as `action/argoproj.io/Application/toggle-suspend`,
-separately from `applications, update`.
+The Application gets a `toggle-suspend` resource action, shown as "Suspend" or "Resume" in the context menu
+of the root node. It only sets or removes the annotation on that Application, and RBAC grants it as
+`action/argoproj.io/Application/toggle-suspend`, separately from `applications, update`.
 
 Resource actions on an Application must run against the control plane cluster, where Applications are
-stored. The server resolves the destination cluster for them instead, so actions on Applications that deploy
-to another cluster fail with `NotFound`. This proposal fixes that routing first: the Application itself is
-patched on the control plane, and objects that an action creates still go to the destination cluster.
+stored. Today they run against the destination cluster, so they fail for Applications that deploy to another
+cluster. This proposal fixes that first.
 
-#### Applications managed by an ApplicationSet
+#### ApplicationSets and app of apps
 
-The ApplicationSet controller overwrites the metadata of the Applications it manages, except for
-annotations it preserves. This proposal adds `argocd.argoproj.io/suspend` to `defaultPreservedAnnotations`
-(`applicationset/controllers/applicationset_controller.go`), with one difference from the other preserved
-annotations: when the ApplicationSet template sets the annotation, the template value wins. A suspend set
-from the UI therefore survives the ApplicationSet, and a suspend declared in Git can still be lifted in Git.
+The ApplicationSet controller keeps a small set of operational annotations, such as the refresh annotation,
+when it updates the Applications it manages. The suspend annotation joins that set, with one difference:
+when the ApplicationSet template sets the annotation, the template wins. A suspend set from the UI therefore
+survives the ApplicationSet, and a suspend declared in Git can still be lifted in Git.
 
-#### App of apps and cascade
+A parent Application does not revert the annotation on a child unless the parent's manifest declares it. If
+it does, Git wins as for any other field.
 
-A child Application suspended from the UI keeps the annotation, because the parent's manifest does not
-declare it. If the parent's manifest does declare it, Git wins and self-heal reverts the UI change, as for
-any other field.
-
-The built-in suspend script for `argoproj.io/Application` sets the annotation on the child Applications in
-the parent's desired state. Suspending the parent therefore suspends the whole tree, and resuming the parent
-removes the annotation from the children. A child that was suspended individually before its parent was
-suspended is resumed together with the parent, because the parent now owns the annotation.
+The built-in suspend script for `argoproj.io/Application` sets the annotation on child Applications, so
+suspending a parent suspends the whole tree and resuming the parent resumes it. A child that was suspended on
+its own before the parent was suspended is resumed together with the parent.
 
 ### Detailed examples
 
@@ -258,75 +192,60 @@ spec:
   # unchanged
 ```
 
+Change how Deployments are suspended:
+
+```yaml
+data:
+  resource.customizations.suspend.apps_Deployment: |
+    obj.spec.replicas = 0
+    return obj
+```
+
 Grant the action to a group that cannot otherwise update Applications:
 
 ```csv
 p, role:night-shift, applications, action/argoproj.io/Application/toggle-suspend, dev/*, allow
 ```
 
+### Test plan
+
+* Suspend and resume an Application with automated sync enabled and disabled.
+* A `PreSync` hook does not run, and a multi-wave sync completes, while the Application is suspended.
+* A Deployment with an HPA stays at 0 replicas while suspended and is scaled by the HPA after resume, with
+  and without `spec.replicas` in Git.
+* A child Application suspended from the UI is not reverted by its parent, with client-side and server-side
+  apply, and a suspended parent suspends its children.
+* An Application generated by an ApplicationSet keeps a suspend set from the UI.
+* A deny sync window postpones suspend until the window closes.
+
 ### Security Considerations
 
 * Suspend takes workloads offline. Whoever may run `toggle-suspend` or update an Application can cause an
-  outage of that Application, as they already can with `sync`, `delete` or `rollback`. The dedicated RBAC
-  action lets admins grant suspend without granting `update`.
-* Suspend and resume syncs are controller syncs: they use the controller's credentials or, when sync
-  impersonation is enabled, the impersonated service account of the destination, as automated syncs do.
+  outage of that Application, as they already can with sync, delete or rollback. The dedicated RBAC action
+  lets admins grant suspend without granting `update`.
+* Suspend and resume syncs use the same credentials as automated syncs, including sync impersonation when it
+  is enabled.
 * Suspend scripts come from Argo CD itself or from `argocd-cm`, which only admins control, and run in the
   same sandboxed Lua VM as health checks and actions.
-* The `toggle-suspend` action patches only the Application it runs on. It cannot target another Application
-  or a workload.
+* The `toggle-suspend` action changes only the Application it runs on.
 
 ### Risks and Mitigations
 
-* When Git does not set a workload's replicas, usually because an HPA manages them, the script scales the
-  workload to 0, and on resume it comes back with the Kubernetes default of 1 replica before the HPA takes
-  over. An HPA is expected to leave a target with 0 replicas alone. E2e tests must confirm both behaviours
-  before the design relies on them.
-* Someone who scales a workload of a suspended Application to 0 by hand gets the Git value back on resume,
-  because that change looks the same as the suspended state. This is intended, since resume returns to what
-  Git declares.
-* Downgrading to a controller without this feature works like a resume: the desired state comes from Git
-  again and the next sync restores the workloads.
-* The diff view shows the transformed desired state, for example `replicas: 0` where Git says 3. The
-  Application health message and the status panel say that the Application is suspended.
+* When Git does not set a workload's replicas, usually because an HPA manages them, the workload comes back
+  with the Kubernetes default of 1 replica on resume before the HPA takes over. An HPA is expected to leave a
+  target with 0 replicas alone while it is suspended. Tests must confirm both before the design relies on
+  them.
+* Someone who scales a workload of a suspended Application to 0 by hand gets the Git value back on resume.
+  This is intended, since resume returns to what Git declares.
+* The diff shows the suspended form, for example `replicas: 0` where Git says 3. The health message states
+  that the Application is suspended.
 
 ### Upgrade / Downgrade Strategy
 
-* Upgrade needs no changes. The annotation is opt-in, and Applications without it behave exactly as before.
-* The `ResourceOverride.SuspendLua` field and the optional `status.suspend` field are additive API changes and
-  require regenerated API code and manifests.
-* On downgrade, older controllers ignore the annotation and drop `status.suspend`, and suspended Applications
-  resume at their next sync.
-
-## Test Plan
-
-Unit tests:
-
-* every built-in `suspend.lua`, through `suspend_test.yaml` cases;
-* `CompareAppState` with and without the annotation, including kinds without a script and the
-  `SuspendWarning` condition;
-* `setApplicationHealth`: `Healthy` becomes `Suspended` only with the annotation; worse states are kept;
-* the `suspendSync` state machine: each transition, automated sync disabled, an operation in progress, a deny
-  sync window, retry backoff;
-* `SyncAppState` while suspended: hooks skipped, waves not blocked by `Suspended` resources;
-* the ApplicationSet preservation rule, with and without the annotation in the template;
-* `toggle-suspend` action and discovery; actions on an Application whose destination is another cluster.
-
-End-to-end tests:
-
-* suspend and resume of an Application with a Deployment, a StatefulSet and a CronJob, with automated sync
-  enabled and disabled;
-* a `PreSync` hook does not run while the Application is suspended;
-* a multi-wave sync of a suspended Application completes when a resource in an early wave is `Suspended`;
-* a Deployment with an HPA stays at 0 replicas while suspended and is scaled by the HPA after resume, with
-  `spec.replicas` present in Git and absent from Git;
-* a child Application suspended from the UI is not reverted by its parent, with client-side and server-side
-  apply;
-* suspending a parent Application suspends its children, and resuming it resumes them;
-* an Application generated by an ApplicationSet keeps a UI-set suspend after the ApplicationSet reconciles;
-* KEDA ScaledObject and CloudNativePG Cluster manifests (CRDs installed, operators not required) receive and
-  lose their annotations;
-* a deny sync window postpones suspend until the window closes.
+* Upgrade needs no changes. The annotation is opt-in, and Applications without it behave as before.
+* The new status field and the new `argocd-cm` key are additive.
+* Older versions ignore the annotation, so after a downgrade suspended Applications resume at their next
+  sync.
 
 ## Drawbacks
 
@@ -346,10 +265,9 @@ drift from Git, self-heal reverts them, and resume needs stored replica counts.
 
 ### Automatically added `ignoreDifferences`
 
-`ignoreDifferences` only hides fields from the diff. Whether a later sync keeps or resets them depends
-on the apply mode and on `RespectIgnoreDifferences`. The Application reports `Synced` while it drifts from
-Git, and Argo CD would have to edit the user's `spec.ignoreDifferences` and undo exactly that edit on
-resume.
+`ignoreDifferences` only hides fields from the diff. Whether a later sync keeps or resets them depends on
+the apply mode and on `RespectIgnoreDifferences`. The Application reports `Synced` while it drifts from Git,
+and Argo CD would have to edit the user's `spec.ignoreDifferences` and undo exactly that edit on resume.
 
 ### A new health status such as `Paused`
 
