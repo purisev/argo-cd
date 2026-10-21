@@ -116,50 +116,21 @@ data:
 
 The script is stored in a new `SuspendLua` field of `ResourceOverride`, next to `HealthLua` and `Actions`.
 
-Built-in scripts cover kinds that have a way to stop their Pods while keeping their data and configuration:
+A kind gets a built-in script when it has a way to stop its Pods while keeping its data and configuration,
+and when its behaviour in the stopped state is confirmed by the script's tests. Typical forms are
+`spec.replicas: 0` for Deployments and StatefulSets, `spec.suspend: true` for CronJobs, the pause
+annotations of KEDA ScaledObjects and `cnpg.io/hibernation: "on"` for CloudNativePG Clusters. The script for
+`argoproj.io/Application` sets the suspend annotation on child Applications (see the cascade below).
 
-| Kind | Suspended form |
-|------|----------------|
-| `apps/Deployment`, `apps/StatefulSet`, `apps/ReplicaSet`, `v1/ReplicationController` | `spec.replicas: 0` |
-| `apps.openshift.io/DeploymentConfig` | `spec.replicas: 0` |
-| `argoproj.io/Rollout` | `spec.replicas: 0` |
-| `apps.kruise.io/CloneSet`, `apps.kruise.io/StatefulSet` | `spec.replicas: 0` |
-| `rabbitmq.com/RabbitmqCluster` | `spec.replicas: 0` |
-| `batch/CronJob` | `spec.suspend: true` |
-| `batch/Job` | `spec.suspend: true` |
-| `argoproj.io/CronWorkflow` | `spec.suspend: true` |
-| `apps.kruise.io/AdvancedCronJob`, `apps.kruise.io/BroadcastJob` | `spec.paused: true` |
-| `keda.sh/ScaledObject` | annotations `autoscaling.keda.sh/paused-replicas: "0"` and `autoscaling.keda.sh/paused: "true"` |
-| `keda.sh/ScaledJob` | annotation `autoscaling.keda.sh/paused: "true"` |
-| `postgresql.cnpg.io/Cluster` | annotation `cnpg.io/hibernation: "on"` |
-| `psmdb.percona.com/PerconaServerMongoDB`, `pxc.percona.com/PerconaXtraDBCluster` | `spec.pause: true` |
-| `kubevirt.io/VirtualMachine` | `spec.running: false` when the manifest sets `spec.running`, otherwise `spec.runStrategy: Halted` |
-| `serving.kserve.io/InferenceService`, `serving.kserve.io/LLMInferenceService` | annotation `serving.kserve.io/stop: "true"` |
-| `flink.apache.org/FlinkDeployment`, `flink.apache.org/FlinkSessionJob` | `spec.job.state: suspended` |
-| `numaflow.numaproj.io/Pipeline`, `numaflow.numaproj.io/MonoVertex` | `spec.lifecycle.desiredPhase: Paused` |
-| `numaplane.numaproj.io/PipelineRollout`, `numaplane.numaproj.io/MonoVertexRollout` | `desiredPhase: Paused` in the lifecycle of the embedded Pipeline or MonoVertex spec |
-| `argoproj.io/Application` | annotation `argocd.argoproj.io/suspend: "true"` (cascade, see below) |
+Two kinds of switches do not qualify:
 
-A Job that has already completed is not affected by `spec.suspend`, so only running Jobs stop.
+* Switches that stop only an operator's reconciliation, or only a rollout, while the Pods keep running, such
+  as Flux `suspend` or Deployment `spec.paused`.
+* Switches that stop cluster infrastructure, such as Cluster API machine replicas. Other Applications run on
+  that infrastructure, so an admin who wants it adds the script in `argocd-cm`.
 
-Most of these fields already appear in health checks, actions or their test data in `resource_customizations`.
-`argoproj.io/CronWorkflow` `spec.suspend` and `pxc.percona.com/PerconaXtraDBCluster` `spec.pause` do not; they
-come from the operators' APIs, and the script tests must confirm them.
-
-Several customizations pause something other than the Pods, and they get no suspend script:
-
-* Flux sources, Kustomizations and HelmReleases, MariaDB `spec.suspend`, and the CloudNativePG
-  `reconciliationLoop` annotation stop the controller's reconciliation while the workloads keep running.
-* `apps/Deployment` `spec.paused` and the `updateStrategy` pause of OpenKruise workloads stop rollouts, not
-  Pods.
-* Cluster API `MachineDeployment` and `MachinePool` replicas and Gardener `Shoot` hibernation manage cluster
-  nodes. Scaling them takes down infrastructure that other Applications run on, so an admin who wants that
-  has to add the script in `argocd-cm`.
-
-Kinds that may support scaling to zero but whose behaviour at zero is not confirmed by any existing health
-check or action, such as OpenFaaS `Function`, SpinKube `SpinApp`, Strimzi `KafkaConnect`, Altinity
-`ClickHouseInstallation` and OpenKruise `GameServerSet`, get built-in scripts only after that behaviour is
-verified against the operator's documentation.
+The list of built-in scripts is generated into `docs/operator-manual/resource_suspend_builtin.md` from
+`resource_customizations`, in the same way as the list of built-in actions.
 
 A script must return an object of the same group, kind, name and namespace. Any other result is a
 comparison error.
