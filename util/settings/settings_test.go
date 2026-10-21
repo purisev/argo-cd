@@ -508,6 +508,8 @@ func TestGetResourceOverrides_with_splitted_keys(t *testing.T) {
       health.lua: |
         foo
     apps/Deployment:
+      suspend.lua: |
+        foo
       actions: |
         foo`,
 	}
@@ -527,6 +529,7 @@ func TestGetResourceOverrides_with_splitted_keys(t *testing.T) {
 		assert.Equal(t, "foo\n", overrides["cert-manager.io/Certificate"].HealthLua)
 		assert.False(t, overrides["cert-manager.io/Certificate"].UseOpenLibs)
 		assert.Equal(t, "foo", overrides["apps/Deployment"].Actions)
+		assert.Equal(t, "foo\n", overrides["apps/Deployment"].SuspendLua)
 	})
 
 	t.Run("SplitKeys", func(t *testing.T) {
@@ -547,6 +550,7 @@ func TestGetResourceOverrides_with_splitted_keys(t *testing.T) {
 			"resource.customizations.useOpenLibs.cert-manager.io_Certificate":    "true",
 			"resource.customizations.actions.apps_Deployment":                    "bar",
 			"resource.customizations.actions.Deployment":                         "bar",
+			"resource.customizations.suspend.apps_Deployment":                    "baz",
 			"resource.customizations.health.iam-manager.k8s.io_Iamrole":          "bar",
 			"resource.customizations.health.Iamrole":                             "bar",
 			"resource.customizations.ignoreDifferences.iam-manager.k8s.io_Iamrole": `jsonPointers:
@@ -579,6 +583,7 @@ func TestGetResourceOverrides_with_splitted_keys(t *testing.T) {
 		assert.False(t, overrides["certmanager.k8s.io/Certificate"].UseOpenLibs)
 		assert.True(t, overrides["cert-manager.io/Certificate"].UseOpenLibs)
 		assert.Equal(t, "bar", overrides["apps/Deployment"].Actions)
+		assert.Equal(t, "baz", overrides["apps/Deployment"].SuspendLua)
 		assert.Equal(t, "bar", overrides["Deployment"].Actions)
 		assert.Equal(t, "bar", overrides["iam-manager.k8s.io/Iamrole"].HealthLua)
 		assert.Equal(t, "bar", overrides["Iamrole"].HealthLua)
