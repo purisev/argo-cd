@@ -1,0 +1,15 @@
+apiVersion: argoproj.io/v1alpha1
+kind: CronWorkflow
+metadata:
+  name: example
+  namespace: default
+spec:
+  suspend: true
+  schedules:
+  - "*/5 * * * *"
+  workflowSpec:
+    entrypoint: main
+    templates:
+    - name: main
+      container:
+        image: quay.io/argoprojlabs/argocd-e2e-container:0.2

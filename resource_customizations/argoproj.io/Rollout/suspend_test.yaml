@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/rollout.yaml
+  expectedOutputPath: testdata/suspend/rollout-suspended.yaml
+- inputPath: testdata/suspend/rollout-without-replicas.yaml
+  expectedOutputPath: testdata/suspend/rollout-without-replicas-suspended.yaml
