@@ -59,8 +59,8 @@ the environment should come back with its configuration intact.
 ### Non-Goals
 
 * Scheduled suspend and resume. A sync window, a CronJob or an external controller can set the annotation.
-* Suspending resources that have no scale-to-zero semantics, such as DaemonSets or bare Pods. They are
-  reported, not changed.
+* Suspending resources that have no scale-to-zero semantics, such as DaemonSets or bare Pods. Argo CD lists
+  them in a warning and leaves them as they are.
 * Deleting resources. Suspend keeps every resource, PersistentVolumeClaims included.
 * A dedicated suspend panel in the UI. Suspend and resume are offered in the context menu of the
   Application's root node, where resource actions on the Application already appear.
@@ -117,7 +117,7 @@ data:
 The script is stored in a new `SuspendLua` field of `ResourceOverride`, next to `HealthLua` and `Actions`.
 
 A kind gets a built-in script when it has a way to stop its Pods while keeping its data and configuration,
-and when its behaviour in the stopped state is confirmed by the script's tests. Typical forms are
+and when the script's tests confirm how the kind behaves once stopped. Typical forms are
 `spec.replicas: 0` for Deployments and StatefulSets, `spec.suspend: true` for CronJobs, the pause
 annotations of KEDA ScaledObjects and `cnpg.io/hibernation: "on"` for CloudNativePG Clusters. The script for
 `argoproj.io/Application` sets the suspend annotation on child Applications (see the cascade below).
@@ -145,9 +145,9 @@ from `CompareAppState` as well.
 The controller leaves target objects alone when their kind has no suspend script. If any of them is a
 DaemonSet or a Pod, the Application gets a `SuspendWarning` condition that lists them.
 
-Fields that a suspend script sets are applied by Argo CD, so Argo CD owns them: they are recorded in
-`last-applied-configuration` with client-side apply and owned by the Argo CD field manager with server-side
-apply. When the annotation is removed, the next sync removes those fields or restores the values from Git.
+Argo CD applies the fields that a suspend script sets, so it owns them. With client-side apply they end up
+in `last-applied-configuration`, and with server-side apply the Argo CD field manager owns them. Once the
+annotation is gone, the next sync removes those fields or restores the values from Git.
 
 #### Suspend status
 
@@ -209,8 +209,8 @@ it.
 
 `resource_customizations/argoproj.io/Application/actions/` gets a `toggle-suspend` action that sets or
 removes the annotation. `discovery.lua` offers it as "Suspend" or "Resume" depending on the current value.
-The action patches only the Application, and access to it is granted with
-`action/argoproj.io/Application/toggle-suspend` in RBAC, separately from `applications, update`.
+The action patches only the Application. RBAC grants it as `action/argoproj.io/Application/toggle-suspend`,
+separately from `applications, update`.
 
 Resource actions on an Application must run against the control plane cluster, where Applications are
 stored. The server resolves the destination cluster for them instead, so actions on Applications that deploy
@@ -220,8 +220,8 @@ patched on the control plane, and objects that an action creates still go to the
 #### Applications managed by an ApplicationSet
 
 The ApplicationSet controller overwrites the metadata of the Applications it manages, except for
-annotations it preserves. `argocd.argoproj.io/suspend` is added to `defaultPreservedAnnotations`
-(`applicationset/controllers/applicationset_controller.go`) with one difference from the other preserved
+annotations it preserves. This proposal adds `argocd.argoproj.io/suspend` to `defaultPreservedAnnotations`
+(`applicationset/controllers/applicationset_controller.go`), with one difference from the other preserved
 annotations: when the ApplicationSet template sets the annotation, the template value wins. A suspend set
 from the UI therefore survives the ApplicationSet, and a suspend declared in Git can still be lifted in Git.
 
@@ -346,7 +346,7 @@ drift from Git, self-heal reverts them, and resume needs stored replica counts.
 
 ### Automatically added `ignoreDifferences`
 
-Ignored fields are hidden from the diff and nothing more. Whether a later sync keeps or resets them depends
+`ignoreDifferences` only hides fields from the diff. Whether a later sync keeps or resets them depends
 on the apply mode and on `RespectIgnoreDifferences`. The Application reports `Synced` while it drifts from
 Git, and Argo CD would have to edit the user's `spec.ignoreDifferences` and undo exactly that edit on
 resume.
