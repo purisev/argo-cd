@@ -109,7 +109,7 @@ data:
   # Configuration to customize resource behavior (optional) can be configured via split sub keys.
   # Keys are in the form: resource.customizations.ignoreDifferences.<group_kind>, resource.customizations.health.<group_kind>
   # resource.customizations.actions.<group_kind>, resource.customizations.knownTypeFields.<group_kind>
-  # resource.customizations.ignoreResourceUpdates.<group_kind>
+  # resource.customizations.ignoreResourceUpdates.<group_kind>, resource.customizations.suspend.<group_kind>
   resource.customizations.ignoreDifferences.admissionregistration.k8s.io_MutatingWebhookConfiguration: |
     jsonPointers:
     - /webhooks/0/clientConfig/caBundle
@@ -227,6 +227,14 @@ data:
           end
           obj.spec.template.metadata.annotations["kubectl.kubernetes.io/restartedAt"] = os.date("!%Y-%m-%dT%XZ")
           return obj
+
+  # Lua Script that returns the resource in the form it has while its Application is suspended
+  resource.customizations.suspend.example.com_Database: |
+    if obj.spec == nil then
+      obj.spec = {}
+    end
+    obj.spec.paused = true
+    return obj
 
   # Configuration to completely ignore entire classes of resource group/kinds (optional).
   # Excluding high-volume resources improves performance and memory usage, and reduces load and

@@ -10,7 +10,7 @@ approvers:
   - TBD
 
 creation-date: 2026-10-21
-last-updated: 2026-10-21
+last-updated: 2026-10-24
 ---
 
 # Suspend an Application
@@ -124,7 +124,9 @@ Every sync of a suspended Application, whether automated, manual or a rollback, 
 Argo CD suspends and resumes the workloads itself, so the action takes effect even when automated sync is
 disabled. When the annotation appears or disappears, Argo CD syncs the out-of-sync resources that have a
 suspend script, without hooks and without pruning. These syncs follow the rules of automated sync: they wait
-for a running operation to finish, respect sync windows and back off after a failure.
+for a running operation to finish, respect sync windows and back off after a failure. Like automated sync,
+a suspend or resume that a sync window held back continues at the next reconciliation after the window
+closes.
 
 To resume correctly, Argo CD has to know that it suspended the workloads. Without that it could not tell
 them from workloads that someone scaled to zero by hand. The Application status gets an optional field for
@@ -142,7 +144,8 @@ resume completes.
 
 #### Application health
 
-The health of a suspended Application is `Suspended` when all of its resources are healthy. Argo CD reports
+The health of a suspended Application is `Suspended` once all of its resources with a suspend script are in
+their suspended form and all of its resources are healthy. Argo CD reports
 a worse state, such as `Progressing` while Pods terminate or `Degraded`, as it is. `Suspended` is an existing
 status code that the UI, the CLI, badges, metrics and notifications already handle.
 
@@ -175,8 +178,11 @@ its own before the parent was suspended is resumed together with the parent.
 Suspend from the CLI:
 
 ```shell
-argocd app actions run guestbook toggle-suspend --kind Application --group argoproj.io
+argocd app actions run guestbook toggle-suspend --kind Application --group argoproj.io \
+  --resource-name guestbook --namespace argocd
 ```
+
+The resource name and namespace select the Application itself when it also manages child Applications.
 
 Suspend declaratively:
 
@@ -239,6 +245,9 @@ p, role:night-shift, applications, action/argoproj.io/Application/toggle-suspend
   This is intended, since resume returns to what Git declares.
 * The diff shows the suspended form, for example `replicas: 0` where Git says 3. The health message states
   that the Application is suspended.
+* When a field that a suspend script sets is hidden by `ignoreDifferences`, for example `/spec/replicas` of a
+  Deployment, the resource looks synced while it keeps running. A `SuspendWarning` condition lists such
+  resources.
 
 ### Upgrade / Downgrade Strategy
 
