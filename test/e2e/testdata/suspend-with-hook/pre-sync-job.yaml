@@ -1,0 +1,16 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: main
+          command: ["true"]
+          image: quay.io/argoprojlabs/argocd-e2e-container:0.1
+          imagePullPolicy: IfNotPresent
