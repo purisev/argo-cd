@@ -344,6 +344,10 @@ The App health will be the **worst health of its immediate child resources**, ba
 **Healthy, Suspended, Progressing, Missing, Degraded, Unknown.**  
 For example, if an App has a Missing resource and a Degraded resource, the App's health will be **Degraded**.
 
+A [suspended](../user-guide/suspend.md) App is **Suspended** once all its resources are in their suspended form and
+healthy, even though a Deployment scaled to zero replicas is itself Healthy. If a resource is in a worse state, the App
+shows that state.
+
 But the health of a resource is not inherited from child resources - it is calculated using only information about the 
 resource itself. A resource's status field may or may not contain information about the health of a child resource, and 
 the resource's health check may or may not take that information into account.

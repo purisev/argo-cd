@@ -70,6 +70,7 @@ nav:
   - operator-manual/webhook.md
   - operator-manual/health.md
   - operator-manual/resource_actions.md
+  - operator-manual/resource_suspend.md
   - operator-manual/custom_tools.md
   - operator-manual/custom-styles.md
   - operator-manual/ui-customization.md
@@ -221,6 +222,7 @@ nav:
   - user-guide/sync_windows.md
   - user-guide/sync-kubectl.md
   - user-guide/skip_reconcile.md
+  - user-guide/suspend.md
   - Generating Applications with ApplicationSet: user-guide/application-set.md
   - Managing ApplicationSets in the Web UI: user-guide/application-set-ui.md
   - user-guide/ci_automation.md
