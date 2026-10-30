@@ -36,6 +36,8 @@ A [suspend script](../operator-manual/resource_suspend.md) defines that form for
 
 - Argo CD syncs the resources that have a suspend script itself, even when automated sync is disabled. It does not
   prune. Self-heal keeps the workloads stopped.
+- Argo CD only changes resources that Git declares. Jobs that a CronJob started before the suspend run to completion,
+  and the suspended CronJob starts no new ones.
 - Syncs of a suspended Application do not run [hooks](resource_hooks.md), and sync waves do not wait for `Suspended`
   resources.
 - The diff shows the suspended form. `argocd app manifests` shows what Git declares.
