@@ -1,0 +1,3 @@
+tests:
+- inputPath: testdata/suspend/pipelinerollout.yaml
+  expectedOutputPath: testdata/suspend/pipelinerollout-suspended.yaml

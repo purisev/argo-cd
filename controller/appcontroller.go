@@ -2307,8 +2307,12 @@ func (ctrl *ApplicationController) processAppRefreshQueueItem() (processNext boo
 	}
 
 	canSync, _ := project.Spec.SyncWindows.Matches(app).CanSync(false, nil)
+	suspendErrCond, suspendOpDuration, suspendInitiated := ctrl.suspendSync(ctx, app, compareResult, canSync)
 	if canSync {
-		syncErrCond, opDuration := ctrl.autoSync(ctx, app, compareResult.syncStatus, compareResult.resources, compareResult.revisionsMayHaveChanges)
+		syncErrCond, opDuration := suspendErrCond, suspendOpDuration
+		if !suspendInitiated && suspendErrCond == nil {
+			syncErrCond, opDuration = ctrl.autoSync(ctx, app, compareResult.syncStatus, compareResult.resources, compareResult.revisionsMayHaveChanges)
+		}
 		setOpDuration = opDuration
 		if syncErrCond != nil {
 			app.Status.SetConditions(
@@ -2498,6 +2502,8 @@ func (ctrl *ApplicationController) needRefreshAppStatus(app *appv1.Application, 
 			reason = "spec.syncPolicy.managedNamespaceMetadata differs"
 		} else if !app.Spec.IgnoreDifferences.Equals(app.Status.Sync.ComparedTo.IgnoreDifferences) {
 			reason = "spec.ignoreDifferences differs"
+		} else if suspendStateDiffers(app) {
+			reason = "suspend state differs"
 		} else if requested, level := ctrl.isRefreshRequested(app.QualifiedName()); requested {
 			compareWith = level
 			reason = "controller refresh requested"
@@ -3265,6 +3271,10 @@ func (ctrl *ApplicationController) applicationEventHandlerFuncs() cache.Resource
 			if oldOK && newOK {
 				if automatedSyncEnabled(oldApp, newApp) {
 					log.WithFields(applog.GetAppLogFields(newApp)).Info("Enabled automated sync")
+					compareWith = CompareWithLatest.Pointer()
+				}
+				if oldApp.IsSuspended() != newApp.IsSuspended() {
+					log.WithFields(applog.GetAppLogFields(newApp)).Infof("Suspend annotation changed to %t", newApp.IsSuspended())
 					compareWith = CompareWithLatest.Pointer()
 				}
 				if ctrl.statusRefreshJitter != 0 && oldApp.ResourceVersion == newApp.ResourceVersion {

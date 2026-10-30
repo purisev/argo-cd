@@ -8087,6 +8087,9 @@
         "summary": {
           "$ref": "#/definitions/v1alpha1ApplicationSummary"
         },
+        "suspend": {
+          "$ref": "#/definitions/v1alpha1ApplicationSuspendStatus"
+        },
         "sync": {
           "$ref": "#/definitions/v1alpha1SyncStatus"
         }
@@ -8113,6 +8116,19 @@
         "isAppOfApps": {
           "description": "IsAppOfApps holds true if the application has any application for child resource.",
           "type": "boolean"
+        }
+      }
+    },
+    "v1alpha1ApplicationSuspendStatus": {
+      "type": "object",
+      "title": "ApplicationSuspendStatus holds the state of suspending or resuming an application's workloads",
+      "properties": {
+        "phase": {
+          "type": "string",
+          "title": "Phase is the current phase of the transition"
+        },
+        "startedAt": {
+          "$ref": "#/definitions/v1Time"
         }
       }
     },
@@ -10339,6 +10355,10 @@
           "items": {
             "$ref": "#/definitions/v1alpha1KnownTypeField"
           }
+        },
+        "suspendLua": {
+          "description": "SuspendLua contains a Lua script that returns the resource in its suspended form.",
+          "type": "string"
         },
         "useOpenLibs": {
           "description": "UseOpenLibs indicates whether to use open-source libraries for the resource.",

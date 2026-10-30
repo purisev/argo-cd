@@ -1,0 +1,16 @@
+apiVersion: apps.openshift.io/v1
+kind: DeploymentConfig
+metadata:
+  name: example
+  namespace: default
+spec:
+  selector:
+    app: example
+  template:
+    metadata:
+      labels:
+        app: example
+    spec:
+      containers:
+      - name: example
+        image: quay.io/argoprojlabs/argocd-e2e-container:0.2

@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/statefulset.yaml
+  expectedOutputPath: testdata/suspend/statefulset-suspended.yaml
+- inputPath: testdata/suspend/statefulset-without-replicas.yaml
+  expectedOutputPath: testdata/suspend/statefulset-without-replicas-suspended.yaml

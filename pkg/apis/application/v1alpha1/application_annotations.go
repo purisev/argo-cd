@@ -20,4 +20,8 @@ const (
 	AnnotationKeyManifestGeneratePaths = "argocd.argoproj.io/manifest-generate-paths"
 	// AnnotationKeyManagedByURL contains the URL of the Argo CD instance managing the application
 	AnnotationKeyManagedByURL = "argocd.argoproj.io/managed-by-url"
+
+	// AnnotationKeySuspend marks an application as suspended when set to "true". While it is set, the desired state
+	// of the application's resources is transformed by their suspend scripts.
+	AnnotationKeySuspend = "argocd.argoproj.io/suspend"
 )

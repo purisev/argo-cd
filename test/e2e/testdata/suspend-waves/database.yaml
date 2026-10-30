@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: database
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+data:
+  role: stands in for an operator-managed database

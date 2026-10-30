@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/virtualmachine-running.yaml
+  expectedOutputPath: testdata/suspend/virtualmachine-running-suspended.yaml
+- inputPath: testdata/suspend/virtualmachine-runstrategy.yaml
+  expectedOutputPath: testdata/suspend/virtualmachine-runstrategy-suspended.yaml

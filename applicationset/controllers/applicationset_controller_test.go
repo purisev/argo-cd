@@ -515,6 +515,174 @@ func TestCreateOrUpdateInCluster(t *testing.T) {
 			},
 		},
 		{
+			name: "Ensure that a suspend set on an existing app is preserved",
+			appSet: v1alpha1.ApplicationSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "namespace",
+				},
+				Spec: v1alpha1.ApplicationSetSpec{
+					Template: v1alpha1.ApplicationSetTemplate{
+						Spec: v1alpha1.ApplicationSpec{
+							Project: "project",
+						},
+					},
+				},
+			},
+			existingApps: []v1alpha1.Application{
+				{
+					Kind:            application.ApplicationKind,
+					APIVersion:      "argoproj.io/v1alpha1",
+					Name:            "app1",
+					Namespace:       "namespace",
+					ResourceVersion: "2",
+					Annotations: map[string]string{
+						v1alpha1.AnnotationKeySuspend: "true",
+					},
+					Spec: v1alpha1.ApplicationSpec{
+						Project: "project",
+					},
+				},
+			},
+			desiredApps: []v1alpha1.Application{
+				{
+					Name:      "app1",
+					Namespace: "namespace",
+					Spec: v1alpha1.ApplicationSpec{
+						Project: "project",
+					},
+				},
+			},
+			expected: []v1alpha1.Application{
+				{
+					Kind:            application.ApplicationKind,
+					APIVersion:      "argoproj.io/v1alpha1",
+					Name:            "app1",
+					Namespace:       "namespace",
+					ResourceVersion: "2",
+					Annotations: map[string]string{
+						v1alpha1.AnnotationKeySuspend: "true",
+					},
+					Spec: v1alpha1.ApplicationSpec{
+						Project: "project",
+					},
+				},
+			},
+		},
+		{
+			name: "Ensure that a suspend annotation in the template wins over the existing app",
+			appSet: v1alpha1.ApplicationSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "namespace",
+				},
+				Spec: v1alpha1.ApplicationSetSpec{
+					Template: v1alpha1.ApplicationSetTemplate{
+						Spec: v1alpha1.ApplicationSpec{
+							Project: "project",
+						},
+					},
+				},
+			},
+			existingApps: []v1alpha1.Application{
+				{
+					Kind:            application.ApplicationKind,
+					APIVersion:      "argoproj.io/v1alpha1",
+					Name:            "app1",
+					Namespace:       "namespace",
+					ResourceVersion: "2",
+					Annotations: map[string]string{
+						v1alpha1.AnnotationKeySuspend: "true",
+					},
+					Spec: v1alpha1.ApplicationSpec{
+						Project: "project",
+					},
+				},
+			},
+			desiredApps: []v1alpha1.Application{
+				{
+					Name:      "app1",
+					Namespace: "namespace",
+					Annotations: map[string]string{
+						v1alpha1.AnnotationKeySuspend: "false",
+					},
+					Spec: v1alpha1.ApplicationSpec{
+						Project: "project",
+					},
+				},
+			},
+			expected: []v1alpha1.Application{
+				{
+					Kind:            application.ApplicationKind,
+					APIVersion:      "argoproj.io/v1alpha1",
+					Name:            "app1",
+					Namespace:       "namespace",
+					ResourceVersion: "3",
+					Annotations: map[string]string{
+						v1alpha1.AnnotationKeySuspend: "false",
+					},
+					Spec: v1alpha1.ApplicationSpec{
+						Project: "project",
+					},
+				},
+			},
+		},
+		{
+			name: "Ensure that a suspend annotation in the template is applied to an existing app",
+			appSet: v1alpha1.ApplicationSet{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "name",
+					Namespace: "namespace",
+				},
+				Spec: v1alpha1.ApplicationSetSpec{
+					Template: v1alpha1.ApplicationSetTemplate{
+						Spec: v1alpha1.ApplicationSpec{
+							Project: "project",
+						},
+					},
+				},
+			},
+			existingApps: []v1alpha1.Application{
+				{
+					Kind:            application.ApplicationKind,
+					APIVersion:      "argoproj.io/v1alpha1",
+					Name:            "app1",
+					Namespace:       "namespace",
+					ResourceVersion: "2",
+					Spec: v1alpha1.ApplicationSpec{
+						Project: "project",
+					},
+				},
+			},
+			desiredApps: []v1alpha1.Application{
+				{
+					Name:      "app1",
+					Namespace: "namespace",
+					Annotations: map[string]string{
+						v1alpha1.AnnotationKeySuspend: "true",
+					},
+					Spec: v1alpha1.ApplicationSpec{
+						Project: "project",
+					},
+				},
+			},
+			expected: []v1alpha1.Application{
+				{
+					Kind:            application.ApplicationKind,
+					APIVersion:      "argoproj.io/v1alpha1",
+					Name:            "app1",
+					Namespace:       "namespace",
+					ResourceVersion: "3",
+					Annotations: map[string]string{
+						v1alpha1.AnnotationKeySuspend: "true",
+					},
+					Spec: v1alpha1.ApplicationSpec{
+						Project: "project",
+					},
+				},
+			},
+		},
+		{
 			name: "Ensure that hydrate annotation is preserved from an existing app",
 			appSet: v1alpha1.ApplicationSet{
 				ObjectMeta: metav1.ObjectMeta{
