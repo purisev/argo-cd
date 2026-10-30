@@ -1249,6 +1249,29 @@ type ApplicationStatus struct {
 	ControllerNamespace string `json:"controllerNamespace,omitempty" protobuf:"bytes,13,opt,name=controllerNamespace"`
 	// SourceHydrator stores information about the current state of source hydration
 	SourceHydrator SourceHydratorStatus `json:"sourceHydrator,omitempty" protobuf:"bytes,14,opt,name=sourceHydrator"`
+	// Suspend holds the state of suspending or resuming the application's workloads. It is absent while the
+	// application is neither suspended nor transitioning.
+	Suspend *ApplicationSuspendStatus `json:"suspend,omitempty" protobuf:"bytes,15,opt,name=suspend"`
+}
+
+// ApplicationSuspendPhase is the phase of suspending or resuming an application's workloads
+type ApplicationSuspendPhase string
+
+const (
+	// ApplicationSuspendPhaseSuspending means the suspended form of the workloads is being applied
+	ApplicationSuspendPhaseSuspending ApplicationSuspendPhase = "Suspending"
+	// ApplicationSuspendPhaseSuspended means all workloads with a suspend script are in their suspended form
+	ApplicationSuspendPhaseSuspended ApplicationSuspendPhase = "Suspended"
+	// ApplicationSuspendPhaseResuming means the workloads are being restored to the state declared in the sources
+	ApplicationSuspendPhaseResuming ApplicationSuspendPhase = "Resuming"
+)
+
+// ApplicationSuspendStatus holds the state of suspending or resuming an application's workloads
+type ApplicationSuspendStatus struct {
+	// Phase is the current phase of the transition
+	Phase ApplicationSuspendPhase `json:"phase" protobuf:"bytes,1,opt,name=phase,casttype=ApplicationSuspendPhase"`
+	// StartedAt is when the current phase started
+	StartedAt metav1.Time `json:"startedAt,omitempty" protobuf:"bytes,2,opt,name=startedAt"`
 }
 
 // SourceHydratorStatus contains information about the current state of source hydration
@@ -1925,6 +1948,8 @@ const (
 	ApplicationConditionExcludedResourceWarning = "ExcludedResourceWarning"
 	// ApplicationConditionOrphanedResourceWarning indicates that application has orphaned resources
 	ApplicationConditionOrphanedResourceWarning = "OrphanedResourceWarning"
+	// ApplicationConditionSuspendWarning indicates that a suspended application has resources that cannot be suspended
+	ApplicationConditionSuspendWarning = "SuspendWarning"
 )
 
 // ApplicationCondition contains details about an application condition, which is usually an error or warning
@@ -2628,6 +2653,7 @@ type rawResourceOverride struct {
 	IgnoreDifferences     string           `json:"ignoreDifferences,omitempty"`
 	IgnoreResourceUpdates string           `json:"ignoreResourceUpdates,omitempty"`
 	KnownTypeFields       []KnownTypeField `json:"knownTypeFields,omitempty"`
+	SuspendLua            string           `json:"suspend.lua,omitempty"`
 }
 
 // ResourceOverride holds configuration to customize resource diffing and health assessment
@@ -2644,6 +2670,8 @@ type ResourceOverride struct {
 	IgnoreResourceUpdates OverrideIgnoreDiff `protobuf:"bytes,6,opt,name=ignoreResourceUpdates"`
 	// KnownTypeFields lists fields for which unit conversions should be applied.
 	KnownTypeFields []KnownTypeField `protobuf:"bytes,4,opt,name=knownTypeFields"`
+	// SuspendLua contains a Lua script that returns the resource in its suspended form.
+	SuspendLua string `protobuf:"bytes,7,opt,name=suspendLua"`
 }
 
 // UnmarshalJSON unmarshals a JSON byte slice into a ResourceOverride object.
@@ -2658,6 +2686,7 @@ func (ro *ResourceOverride) UnmarshalJSON(data []byte) error {
 	ro.HealthLua = raw.HealthLua
 	ro.UseOpenLibs = raw.UseOpenLibs
 	ro.Actions = raw.Actions
+	ro.SuspendLua = raw.SuspendLua
 	err := yaml.Unmarshal([]byte(raw.IgnoreDifferences), &ro.IgnoreDifferences)
 	if err != nil {
 		return err
@@ -2680,7 +2709,7 @@ func (ro ResourceOverride) MarshalJSON() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	raw := &rawResourceOverride{ro.HealthLua, ro.UseOpenLibs, ro.Actions, string(ignoreDifferencesData), string(ignoreResourceUpdatesData), ro.KnownTypeFields}
+	raw := &rawResourceOverride{ro.HealthLua, ro.UseOpenLibs, ro.Actions, string(ignoreDifferencesData), string(ignoreResourceUpdatesData), ro.KnownTypeFields, ro.SuspendLua}
 	return json.Marshal(raw)
 }
 
@@ -3862,6 +3891,11 @@ func (app *Application) IsRefreshRequested() (RefreshType, bool) {
 		refreshType = RefreshTypeHard
 	}
 	return refreshType, true
+}
+
+// IsSuspended returns whether the application is marked as suspended with the suspend annotation.
+func (app *Application) IsSuspended() bool {
+	return app.GetAnnotations()[AnnotationKeySuspend] == "true"
 }
 
 // IsHydrateRequested returns whether hydration has been requested for an application and the type of hydration

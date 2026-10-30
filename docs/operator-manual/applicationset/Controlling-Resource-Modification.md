@@ -325,6 +325,9 @@ The ApplicationSet controller will leave this annotation and label as-is when re
 
 By default, the Argo CD notifications and the Argo CD refresh type annotations are also preserved.
 
+The `argocd.argoproj.io/suspend` annotation, which [suspends](../../user-guide/suspend.md) an Application, is preserved
+too, unless the ApplicationSet template sets it.
+
 > [!NOTE]
 > One can also set global preserved fields for the controller by passing a comma separated list of annotations and labels to 
 > `ARGOCD_APPLICATIONSET_CONTROLLER_GLOBAL_PRESERVED_ANNOTATIONS` and `ARGOCD_APPLICATIONSET_CONTROLLER_GLOBAL_PRESERVED_LABELS` respectively.

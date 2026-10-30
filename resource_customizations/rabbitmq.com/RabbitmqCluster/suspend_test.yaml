@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/rabbitmqcluster.yaml
+  expectedOutputPath: testdata/suspend/rabbitmqcluster-suspended.yaml
+- inputPath: testdata/suspend/rabbitmqcluster-without-replicas.yaml
+  expectedOutputPath: testdata/suspend/rabbitmqcluster-without-replicas-suspended.yaml

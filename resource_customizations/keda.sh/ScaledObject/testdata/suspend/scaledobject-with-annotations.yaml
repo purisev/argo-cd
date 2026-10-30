@@ -1,0 +1,16 @@
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: example
+  namespace: default
+  annotations:
+    example.com/owner: "team"
+spec:
+  scaleTargetRef:
+    name: example
+  minReplicaCount: 1
+  triggers:
+  - type: cpu
+    metricType: Utilization
+    metadata:
+      value: "60"

@@ -38,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
@@ -3817,6 +3818,60 @@ func TestRunOldStyleResourceAction(t *testing.T) {
 		require.NoError(t, runErr)
 		assert.NotNil(t, appResponse)
 	})
+}
+
+// patchBodyRecordingKubectl records the body of each patch, so that tests can assert what an action changed.
+type patchBodyRecordingKubectl struct {
+	kube.Kubectl
+	patches [][]byte
+}
+
+func (k *patchBodyRecordingKubectl) PatchResource(ctx context.Context, config *rest.Config, gvk schema.GroupVersionKind, name string, namespace string, patchType types.PatchType, patchBytes []byte, subresources ...string) (*unstructured.Unstructured, error) {
+	k.patches = append(k.patches, patchBytes)
+	return k.Kubectl.PatchResource(ctx, config, gvk, name, namespace, patchType, patchBytes, subresources...)
+}
+
+func TestRunResourceActionV2OnApplicationTogglesSuspend(t *testing.T) {
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		expected    any
+	}{
+		{name: "Suspend", annotations: map[string]string{"keep": "me"}, expected: "true"},
+		{name: "Resume", annotations: map[string]string{"keep": "me", v1alpha1.AnnotationKeySuspend: "true"}, expected: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := newTestApp(func(a *v1alpha1.Application) {
+				a.Annotations = tt.annotations
+			})
+			appServer := newTestAppServer(t, app)
+			bodies := &patchBodyRecordingKubectl{Kubectl: appServer.kubectl}
+			appServer.kubectl = bodies
+
+			appName := app.Name
+			group := "argoproj.io"
+			kind := "Application"
+			action := "toggle-suspend"
+			_, err := appServer.RunResourceActionV2(t.Context(), &application.ResourceActionRunRequestV2{
+				Name:         &appName,
+				ResourceName: &appName,
+				Group:        &group,
+				Kind:         &kind,
+				Action:       &action,
+			})
+			require.NoError(t, err)
+
+			require.Len(t, bodies.patches, 1)
+			var patch struct {
+				Metadata struct {
+					Annotations map[string]any `json:"annotations"`
+				} `json:"metadata"`
+			}
+			require.NoError(t, json.Unmarshal(bodies.patches[0], &patch))
+			assert.Equal(t, map[string]any{v1alpha1.AnnotationKeySuspend: tt.expected}, patch.Metadata.Annotations)
+		})
+	}
 }
 
 func TestIsApplicationPermitted(t *testing.T) {

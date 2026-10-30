@@ -1,0 +1,3 @@
+tests:
+- inputPath: testdata/suspend/flinksessionjob.yaml
+  expectedOutputPath: testdata/suspend/flinksessionjob-suspended.yaml

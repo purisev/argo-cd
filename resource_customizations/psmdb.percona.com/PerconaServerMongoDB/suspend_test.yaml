@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/perconaservermongodb.yaml
+  expectedOutputPath: testdata/suspend/perconaservermongodb-suspended.yaml
+- inputPath: testdata/suspend/perconaservermongodb-unpaused.yaml
+  expectedOutputPath: testdata/suspend/perconaservermongodb-unpaused-suspended.yaml
