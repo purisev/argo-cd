@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/job.yaml
+  expectedOutputPath: testdata/suspend/job-suspended.yaml
+- inputPath: testdata/suspend/job-already-suspended.yaml
+  expectedOutputPath: testdata/suspend/job-already-suspended-suspended.yaml

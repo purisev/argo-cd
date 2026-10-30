@@ -6308,6 +6308,21 @@ spec:
                       application for child resource.
                     type: boolean
                 type: object
+              suspend:
+                description: |-
+                  Suspend holds the state of suspending or resuming the application's workloads. It is absent while the
+                  application is neither suspended nor transitioning.
+                properties:
+                  phase:
+                    description: Phase is the current phase of the transition
+                    type: string
+                  startedAt:
+                    description: StartedAt is when the current phase started
+                    format: date-time
+                    type: string
+                required:
+                - phase
+                type: object
               sync:
                 description: Sync contains information about the application's current
                   sync status

@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/deploymentconfig.yaml
+  expectedOutputPath: testdata/suspend/deploymentconfig-suspended.yaml
+- inputPath: testdata/suspend/deploymentconfig-without-replicas.yaml
+  expectedOutputPath: testdata/suspend/deploymentconfig-without-replicas-suspended.yaml

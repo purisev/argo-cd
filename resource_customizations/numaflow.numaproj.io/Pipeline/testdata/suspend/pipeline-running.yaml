@@ -1,0 +1,19 @@
+apiVersion: numaflow.numaproj.io/v1alpha1
+kind: Pipeline
+metadata:
+  name: example
+  namespace: default
+spec:
+  lifecycle:
+    desiredPhase: Running
+  vertices:
+  - name: in
+    source:
+      generator:
+        rpu: 5
+  - name: out
+    sink:
+      log: {}
+  edges:
+  - from: in
+    to: out

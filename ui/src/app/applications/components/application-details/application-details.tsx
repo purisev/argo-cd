@@ -20,6 +20,7 @@ import {PodGroupType, PodView} from '../application-pod-view/pod-view';
 import {ApplicationResourceTree, type ResourceTreeNode} from '../application-resource-tree/application-resource-tree';
 import {ApplicationStatusPanel} from '../application-status-panel/application-status-panel';
 import {StatusPanelToggle} from './status-panel-toggle';
+import {suspendActionLabel, toggleAppSuspend} from './application-suspend-action';
 import {ApplicationSetStatusPanel} from '../application-status-panel/appset-status-panel';
 import {ApplicationSyncPanel} from '../application-sync-panel/application-sync-panel';
 import {isApp} from '../utils';
@@ -1433,6 +1434,11 @@ Are you sure you want to disable auto-sync and rollback application '${props.mat
                                       });
                                   }
                               }
+                          },
+                          {
+                              iconClassName: suspendActionLabel(app).iconClassName,
+                              title: <ActionMenuItem actionLabel={suspendActionLabel(app).title} />,
+                              action: () => toggleAppSuspend(app, appContext)
                           }
                       ]
                     : []),
