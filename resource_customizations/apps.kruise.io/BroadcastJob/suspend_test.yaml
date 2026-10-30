@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/broadcastjob.yaml
+  expectedOutputPath: testdata/suspend/broadcastjob-suspended.yaml
+- inputPath: testdata/suspend/broadcastjob-already-paused.yaml
+  expectedOutputPath: testdata/suspend/broadcastjob-already-paused-suspended.yaml

@@ -204,6 +204,13 @@ p, example-user, applications, action//Pod/maintenance-off, default/*, allow
 p, example-user, applications, action/extensions/DaemonSet/*, default/*, allow
 ```
 
+The following policy allows the user to [suspend and resume](../user-guide/suspend.md) the Applications of the `default`
+project, without allowing other changes to them:
+
+```csv
+p, example-user, applications, action/argoproj.io/Application/toggle-suspend, default/*, allow
+```
+
 To allow the user to perform any actions:
 
 ```csv

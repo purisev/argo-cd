@@ -1,0 +1,13 @@
+apiVersion: apps.kruise.io/v1alpha1
+kind: BroadcastJob
+metadata:
+  name: example
+  namespace: default
+spec:
+  paused: false
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: example
+        image: quay.io/argoprojlabs/argocd-e2e-container:0.2

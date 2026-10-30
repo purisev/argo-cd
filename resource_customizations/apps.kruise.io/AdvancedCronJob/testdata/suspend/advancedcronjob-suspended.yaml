@@ -1,0 +1,17 @@
+apiVersion: apps.kruise.io/v1alpha1
+kind: AdvancedCronJob
+metadata:
+  name: example
+  namespace: default
+spec:
+  paused: true
+  schedule: "*/5 * * * *"
+  template:
+    jobTemplate:
+      spec:
+        template:
+          spec:
+            restartPolicy: Never
+            containers:
+            - name: example
+              image: quay.io/argoprojlabs/argocd-e2e-container:0.2

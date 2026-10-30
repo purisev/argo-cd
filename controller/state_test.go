@@ -1988,6 +1988,33 @@ func TestUseDiffCache(t *testing.T) {
 			expectedUseCache:     false,
 			serverSideDiff:       false,
 		},
+		{
+			testName:             "will return false if a suspend has not started yet",
+			manifestInfos:        manifestInfos("rev1"),
+			sources:              sources(),
+			app:                  withSuspend(app("httpbin", "rev1", false, nil), true, nil),
+			manifestRevisions:    []string{"rev1"},
+			statusRefreshTimeout: time.Hour * 24,
+			expectedUseCache:     false,
+		},
+		{
+			testName:             "will use diff cache while suspended",
+			manifestInfos:        manifestInfos("rev1"),
+			sources:              sources(),
+			app:                  withSuspend(app("httpbin", "rev1", false, nil), true, &v1alpha1.ApplicationSuspendStatus{Phase: v1alpha1.ApplicationSuspendPhaseSuspended}),
+			manifestRevisions:    []string{"rev1"},
+			statusRefreshTimeout: time.Hour * 24,
+			expectedUseCache:     true,
+		},
+		{
+			testName:             "will return false if a resume has not started yet",
+			manifestInfos:        manifestInfos("rev1"),
+			sources:              sources(),
+			app:                  withSuspend(app("httpbin", "rev1", false, nil), false, &v1alpha1.ApplicationSuspendStatus{Phase: v1alpha1.ApplicationSuspendPhaseSuspended}),
+			manifestRevisions:    []string{"rev1"},
+			statusRefreshTimeout: time.Hour * 24,
+			expectedUseCache:     false,
+		},
 	}
 
 	for _, tc := range cases {

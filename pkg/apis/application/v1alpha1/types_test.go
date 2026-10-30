@@ -7533,3 +7533,32 @@ func TestCluster_HashIdentity_IncludesQPSAndBurst(t *testing.T) {
 	assert.NotEqual(t, base.HashIdentity(0), withDiffQPS.HashIdentity(0))
 	assert.NotEqual(t, base.HashIdentity(0), withDiffBurst.HashIdentity(0))
 }
+
+func TestApplication_IsSuspended(t *testing.T) {
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		want        bool
+	}{
+		{name: "no annotations", annotations: nil, want: false},
+		{name: "true", annotations: map[string]string{AnnotationKeySuspend: "true"}, want: true},
+		{name: "false", annotations: map[string]string{AnnotationKeySuspend: "false"}, want: false},
+		{name: "other value", annotations: map[string]string{AnnotationKeySuspend: "yes"}, want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := &Application{Annotations: tt.annotations}
+			assert.Equal(t, tt.want, app.IsSuspended())
+		})
+	}
+}
+
+func TestResourceOverride_SuspendLuaJSON(t *testing.T) {
+	data, err := json.Marshal(ResourceOverride{SuspendLua: "return obj"})
+	require.NoError(t, err)
+	assert.Contains(t, string(data), `"suspend.lua":"return obj"`)
+
+	var override ResourceOverride
+	require.NoError(t, json.Unmarshal(data, &override))
+	assert.Equal(t, "return obj", override.SuspendLua)
+}

@@ -1,0 +1,9 @@
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: example
+  namespace: default
+spec:
+  image: flink:1.17
+  flinkVersion: v1_17
+  serviceAccount: flink

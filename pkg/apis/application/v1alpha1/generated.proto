@@ -774,6 +774,10 @@ message ApplicationStatus {
 
   // SourceHydrator stores information about the current state of source hydration
   optional SourceHydratorStatus sourceHydrator = 14;
+
+  // Suspend holds the state of suspending or resuming the application's workloads. It is absent while the
+  // application is neither suspended nor transitioning.
+  optional ApplicationSuspendStatus suspend = 15;
 }
 
 // ApplicationSummary contains information about URLs and container images used by an application
@@ -786,6 +790,15 @@ message ApplicationSummary {
 
   // IsAppOfApps holds true if the application has any application for child resource.
   optional bool isAppOfApps = 3;
+}
+
+// ApplicationSuspendStatus holds the state of suspending or resuming an application's workloads
+message ApplicationSuspendStatus {
+  // Phase is the current phase of the transition
+  optional string phase = 1;
+
+  // StartedAt is when the current phase started
+  optional .k8s.io.apimachinery.pkg.apis.meta.v1.Time startedAt = 2;
 }
 
 // ApplicationTree represents the hierarchical structure of resources associated with an Argo CD application.
@@ -2333,6 +2346,9 @@ message ResourceOverride {
 
   // KnownTypeFields lists fields for which unit conversions should be applied.
   repeated KnownTypeField knownTypeFields = 4;
+
+  // SuspendLua contains a Lua script that returns the resource in its suspended form.
+  optional string suspendLua = 7;
 }
 
 // ResourceRef includes fields which uniquely identify a resource

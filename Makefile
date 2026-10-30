@@ -286,6 +286,7 @@ clidocsgen:
 .PHONY: actionsdocsgen
 actionsdocsgen:
 	hack/generate-actions-list.sh
+	hack/generate-suspend-list.sh
 
 .PHONY: resourceiconsgen
 resourceiconsgen:

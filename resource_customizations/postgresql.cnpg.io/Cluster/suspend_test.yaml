@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/cluster.yaml
+  expectedOutputPath: testdata/suspend/cluster-suspended.yaml
+- inputPath: testdata/suspend/cluster-with-annotations.yaml
+  expectedOutputPath: testdata/suspend/cluster-with-annotations-suspended.yaml

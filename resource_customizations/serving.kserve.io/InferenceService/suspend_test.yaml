@@ -1,0 +1,5 @@
+tests:
+- inputPath: testdata/suspend/inferenceservice.yaml
+  expectedOutputPath: testdata/suspend/inferenceservice-suspended.yaml
+- inputPath: testdata/suspend/inferenceservice-with-annotations.yaml
+  expectedOutputPath: testdata/suspend/inferenceservice-with-annotations-suspended.yaml
