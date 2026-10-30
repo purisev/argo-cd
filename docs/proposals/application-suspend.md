@@ -155,9 +155,9 @@ The Application gets a `toggle-suspend` resource action, shown as "Suspend" or "
 of the root node. It only sets or removes the annotation on that Application, and RBAC grants it as
 `action/argoproj.io/Application/toggle-suspend`, separately from `applications, update`.
 
-Resource actions on an Application must run against the control plane cluster, where Applications are
-stored. Today they run against the destination cluster, so they fail for Applications that deploy to another
-cluster. This proposal fixes that first.
+The action patches the Application itself, so it relies on resource actions on an Application running against
+the control plane cluster, where Applications are stored, and not against the destination cluster. Where these
+actions run is outside the scope of this proposal.
 
 #### ApplicationSets and app of apps
 
